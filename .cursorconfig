@@ -1,0 +1,61 @@
+{
+  "version": "1.0",
+  "design_guidelines": {
+    "responsive_design": {
+      "principles": [
+        "Always use relative units (rem, em, %) over fixed units (px)",
+        "Avoid absolute positioning - it breaks responsive layouts",
+        "Design should work cleanly from mobile to 4k displays",
+        "Use Tailwind's responsive prefixes (sm:, md:, lg:, xl:, 2xl:) for breakpoint-specific styles",
+        "Test layouts at various viewport sizes"
+      ]
+    },
+    "styling": {
+      "preferred": [
+        "Use Tailwind CSS for consistent styling",
+        "Prefer flex and grid layouts over absolute positioning",
+        "Use relative positioning only when necessary",
+        "Maintain proper spacing with Tailwind's spacing scale"
+      ],
+      "avoid": [
+        "Fixed width/height values (except for max/min constraints)",
+        "Absolute positioning",
+        "Hard-coded pixel values",
+        "Direct CSS styles (use Tailwind utilities)"
+      ]
+    },
+    "accessibility": {
+      "requirements": [
+        "Ensure proper keyboard navigation",
+        "Maintain ARIA attributes where needed",
+        "Use semantic HTML elements",
+        "Ensure sufficient color contrast"
+      ]
+    },
+    "animations": {
+      "principles": [
+        "Keep animations subtle and purposeful",
+        "Use transition utilities from Tailwind when possible",
+        "Custom animations should be defined in globals.css",
+        "Consider reduced-motion preferences"
+      ]
+    }
+  },
+  "code_organization": {
+    "component_structure": {
+      "rules": [
+        "Keep components focused and single-purpose",
+        "Extract reusable logic into custom hooks",
+        "Maintain clear prop interfaces",
+        "Document complex component behavior"
+      ]
+    },
+    "naming_conventions": {
+      "rules": [
+        "Use descriptive, semantic names",
+        "Follow React component naming conventions",
+        "Maintain consistent naming patterns across the project"
+      ]
+    }
+  }
+} 

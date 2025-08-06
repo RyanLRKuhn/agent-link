@@ -57,5 +57,23 @@
         "Maintain consistent naming patterns across the project"
       ]
     }
+  },
+  "rules": {
+    "design": {
+      "responsive": {
+        "rule": "Avoid absolute positioning for layout. Use flexbox and grid for responsive designs.",
+        "severity": "error"
+      }
+    },
+    "api": {
+      "claude_model": {
+        "rule": "Always use model: 'claude-3-5-sonnet-20241022' for Claude API calls. This is the required model version.",
+        "severity": "error"
+      }
+    }
+  },
+  "documentation": {
+    "description": "Configuration rules for the AgentLink project",
+    "lastUpdated": "2024-03-20"
   }
 } 

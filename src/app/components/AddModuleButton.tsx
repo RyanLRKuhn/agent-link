@@ -1,36 +1,50 @@
 'use client';
 
 interface AddModuleButtonProps {
-  className?: string;
   onClick: () => void;
+  className?: string;
 }
 
-export default function AddModuleButton({ className = '', onClick }: AddModuleButtonProps) {
+export default function AddModuleButton({ onClick, className = '' }: AddModuleButtonProps) {
   return (
-    <div className={`group relative ${className}`}>
+    <div className={`relative group ${className}`}>
       <button
         onClick={onClick}
-        className="w-10 h-10 rounded-full bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900"
+        className="relative w-10 h-10 rounded-xl bg-gradient-to-b from-[var(--surface-2)] to-[var(--surface-1)] 
+          border border-[var(--border)] shadow-lg transition-all duration-300
+          hover:scale-105 hover:shadow-xl hover:border-[var(--primary)]
+          focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:ring-offset-2 focus:ring-offset-[var(--surface-0)]
+          group-hover:shadow-[var(--glow)]"
         aria-label="Add module"
       >
-        <svg
-          className="w-5 h-5 text-gray-300"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-          />
-        </svg>
+        {/* Gradient overlay */}
+        <div className="absolute inset-0 rounded-xl bg-gradient-to-t from-transparent via-transparent to-white/[0.02] opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+        
+        {/* Icon */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <svg 
+            className="w-5 h-5 text-[var(--text-secondary)] group-hover:text-[var(--primary)] transition-colors duration-300" 
+            fill="none" 
+            viewBox="0 0 24 24" 
+            stroke="currentColor"
+          >
+            <path 
+              strokeLinecap="round" 
+              strokeLinejoin="round" 
+              strokeWidth={2} 
+              d="M12 4v16m8-8H4" 
+            />
+          </svg>
+        </div>
       </button>
-      
+
       {/* Tooltip */}
-      <div className="absolute left-1/2 -translate-x-1/2 px-2 py-1 bg-gray-800 text-gray-200 text-sm rounded opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
-        <div className="whitespace-nowrap">Add module</div>
+      <div className="absolute left-1/2 -translate-x-1/2 px-2 py-1 bg-[var(--surface-3)] rounded-md border border-[var(--border)]
+        text-xs text-[var(--text-secondary)] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-all duration-200
+        shadow-lg backdrop-blur-sm
+        top-full mt-2"
+      >
+        Add module
       </div>
     </div>
   );

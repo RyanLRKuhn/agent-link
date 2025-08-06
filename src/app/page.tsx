@@ -1,20 +1,35 @@
 'use client';
 
 import { useState } from 'react';
-import WorkflowModule from './components/WorkflowModule';
 import AddModuleButton from './components/AddModuleButton';
+import WorkflowModule from './components/WorkflowModule';
 import SettingsDropdown from './components/SettingsDropdown';
+import FlowIndicator from './components/FlowIndicator';
+import WorkflowOutput from './components/WorkflowOutput';
+import ErrorDisplay from './components/ErrorDisplay';
+import ProgressBar from './components/ProgressBar';
+import StatusIndicator from './components/StatusIndicator';
 import { WorkflowModuleData, AVAILABLE_MODELS } from './types/workflow';
+import { useWorkflowStore } from './store/workflowStore';
 
 export default function Home() {
-  const [modules, setModules] = useState<WorkflowModuleData[]>([
-    {
-      id: '1',
-      title: 'Agent 1',
-      selectedModel: AVAILABLE_MODELS[0],
-      prompt: ''
-    }
-  ]);
+  const [modules, setModules] = useState<WorkflowModuleData[]>([{
+    id: '1',
+    title: 'Agent 1',
+    selectedModel: AVAILABLE_MODELS[0],
+    prompt: ''
+  }]);
+
+  const { 
+    isRunning, 
+    currentAgentIndex, 
+    results, 
+    agentStatus, 
+    error, 
+    failedAgentIndex,
+    startWorkflow,
+    stopWorkflow
+  } = useWorkflowStore();
 
   const createModule = (index: number) => {
     const newModule: WorkflowModuleData = {
@@ -24,109 +39,204 @@ export default function Home() {
       prompt: ''
     };
 
-    setModules(prevModules => {
-      const newModules = [...prevModules];
-      newModules.splice(index, 0, newModule);
-      return newModules.map((mod, idx) => ({
-        ...mod,
-        title: `Agent ${idx + 1}`
-      }));
+    const newModules = [...modules];
+    newModules.splice(index, 0, newModule);
+    
+    // Renumber modules
+    newModules.forEach((module, i) => {
+      module.title = `Agent ${i + 1}`;
     });
+
+    setModules(newModules);
   };
 
   const deleteModule = (moduleId: string) => {
-    setModules(prevModules => {
-      if (prevModules.length <= 1) return prevModules;
-      const newModules = prevModules.filter(mod => mod.id !== moduleId);
-      return newModules.map((mod, idx) => ({
-        ...mod,
-        title: `Agent ${idx + 1}`
-      }));
+    if (modules.length <= 1) return;
+
+    const newModules = modules.filter(m => m.id !== moduleId);
+    newModules.forEach((module, i) => {
+      module.title = `Agent ${i + 1}`;
     });
+
+    setModules(newModules);
   };
 
   const updateModule = (moduleId: string, updates: Partial<WorkflowModuleData>) => {
-    setModules(prevModules =>
-      prevModules.map(mod =>
-        mod.id === moduleId ? { ...mod, ...updates } : mod
-      )
-    );
+    setModules(modules.map(module => 
+      module.id === moduleId ? { ...module, ...updates } : module
+    ));
+  };
+
+  const handleRetryFromFailed = () => {
+    if (failedAgentIndex >= 0) {
+      startWorkflow(modules, failedAgentIndex);
+    }
+  };
+
+  const handleRetryAll = () => {
+    startWorkflow(modules, 0);
+  };
+
+  const handleExport = () => {
+    const exportData = {
+      modules,
+      results,
+      timestamp: new Date().toISOString()
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `workflow-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-[var(--surface-0)]">
+    <div className="min-h-screen bg-[var(--surface-0)] flex flex-col">
       {/* Header */}
-      <header className="h-16 border-b border-[var(--border)] bg-[var(--surface-1)] backdrop-blur-sm backdrop-saturate-150 z-10">
-        <div className="max-w-7xl mx-auto h-full px-6 flex items-center justify-between">
+      <header className="sticky top-0 z-50 h-16 border-b border-[var(--border)] bg-[var(--surface-1)] backdrop-blur-sm backdrop-saturate-150">
+        <div className="h-full max-w-7xl mx-auto px-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-[var(--primary)] rounded-lg flex items-center justify-center text-white font-bold shadow-lg shadow-blue-500/20">
               A
             </div>
             <h1 className="text-xl font-semibold text-[var(--text-primary)]">AgentLink</h1>
           </div>
-          
-          {/* Settings Dropdown */}
           <SettingsDropdown />
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 bg-[var(--surface-0)] p-6 overflow-auto">
+      <main className="flex-1 p-6 overflow-auto">
         <div className="max-w-2xl mx-auto">
-          <div className="flex flex-col items-center gap-8">
+          <div className="flex flex-col items-center">
+            {/* Progress Bar */}
+            {isRunning && (
+              <ProgressBar 
+                totalSteps={modules.length} 
+                currentStep={currentAgentIndex} 
+                isRunning={isRunning}
+              />
+            )}
+
+            {/* Initial Add Button */}
             <AddModuleButton 
-              className="tooltip-top animate-slide-in" 
+              className="mb-8 animate-slide-in" 
               onClick={() => createModule(0)}
             />
             
-            {modules.map((module, index) => (
-              <div 
-                key={module.id} 
-                className="w-full flex flex-col items-center gap-8 py-4 relative animate-slide-in"
-                style={{ animationDelay: `${index * 0.1}s` }}
-              >
-                {/* Module with connecting line */}
-                <div className="w-full flex flex-col items-center relative">
+            {/* Modules */}
+            {modules.map((module, index) => {
+              const status = agentStatus[module.id];
+              const isActive = isRunning && currentAgentIndex === index;
+              const isPreviousActive = isRunning && currentAgentIndex === index - 1;
+
+              return (
+                <div 
+                  key={module.id} 
+                  className="w-full flex flex-col items-center animate-slide-in"
+                  style={{ animationDelay: `${index * 0.1}s` }}
+                >
+                  {/* Flow Indicator */}
                   {index > 0 && (
-                    <div className="absolute -top-8 h-8 w-px module-connection" />
+                    <FlowIndicator isActive={isPreviousActive} />
                   )}
-                  <WorkflowModule 
-                    module={module}
-                    onUpdate={updateModule}
-                    onDelete={deleteModule}
-                    canDelete={modules.length > 1}
-                  />
+
+                  {/* Module Card */}
+                  <div className={`w-full transition-all duration-300 ${
+                    isActive ? 'scale-[1.02]' : ''
+                  }`}>
+                    <WorkflowModule 
+                      module={module}
+                      onUpdate={updateModule}
+                      onDelete={deleteModule}
+                      canDelete={modules.length > 1}
+                      index={index}
+                      isExecuting={status?.isExecuting}
+                      isComplete={status?.isComplete}
+                      executionError={status?.error}
+                      executionTime={status?.executionTime}
+                    />
+                  </div>
+
+                  {/* Status Indicator */}
+                  {(status?.isExecuting || status?.isComplete || status?.error) && (
+                    <div className="mt-4 animate-fade-in">
+                      <StatusIndicator
+                        isExecuting={status.isExecuting}
+                        isComplete={status.isComplete}
+                        error={status.error}
+                        executionTime={status.executionTime}
+                      />
+                    </div>
+                  )}
+
+                  {/* Add Button Between Modules */}
+                  <div className="my-8">
+                    <AddModuleButton 
+                      onClick={() => createModule(index + 1)}
+                    />
+                  </div>
                 </div>
-                
-                <AddModuleButton 
-                  className="tooltip-bottom relative"
-                  onClick={() => createModule(index + 1)}
+              );
+            })}
+
+            {/* Run/Stop Workflow Button */}
+            <div className="w-full flex justify-center mb-16">
+              {isRunning ? (
+                <button
+                  onClick={stopWorkflow}
+                  className="px-8 py-3 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium 
+                    transition-all duration-200 hover:shadow-[var(--glow)] flex items-center gap-3"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  Stop Workflow
+                </button>
+              ) : (
+                <button
+                  onClick={() => startWorkflow(modules)}
+                  className="px-8 py-3 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white rounded-lg 
+                    font-medium transition-all duration-200 hover:shadow-[var(--glow)] flex items-center gap-3"
+                  disabled={isRunning || modules.some(m => !m.prompt)}
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Run Workflow
+                </button>
+              )}
+            </div>
+
+            {/* Error Display */}
+            {error && !isRunning && (
+              <div className="w-full mb-16">
+                <ErrorDisplay
+                  error={error}
+                  failedAgentIndex={failedAgentIndex}
+                  modules={modules}
+                  onRetryFromFailed={handleRetryFromFailed}
+                  onRetryAll={handleRetryAll}
                 />
               </div>
-            ))}
+            )}
 
-            {/* Run Workflow Button */}
-            <div className="w-full pt-8 pb-16 flex justify-center">
-              <button
-                className="px-8 py-3 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white rounded-lg font-medium transition-all duration-200 hover-glow flex items-center gap-2 group"
-                onClick={() => {/* TODO: Implement workflow execution */}}
-              >
-                <span>Run Workflow</span>
-                <svg
-                  className="w-4 h-4 transform transition-transform group-hover:translate-x-1"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M14 5l7 7m0 0l-7 7m7-7H3"
-                  />
-                </svg>
-              </button>
-            </div>
+            {/* Final Output */}
+            {!isRunning && results.length > 0 && !error && (
+              <div className="w-full border-t border-[var(--border)] pt-16">
+                <WorkflowOutput 
+                  modules={modules}
+                  results={results}
+                  onExport={handleExport}
+                />
+              </div>
+            )}
           </div>
         </div>
       </main>

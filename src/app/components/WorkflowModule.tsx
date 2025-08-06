@@ -1,43 +1,41 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { WorkflowModuleData, AVAILABLE_MODELS } from '../types/workflow';
 import LoadingSpinner from './LoadingSpinner';
-
-interface ResponseData {
-  response: string;
-  usage: {
-    input_tokens: number;
-    output_tokens: number;
-  };
-  timestamp: string;
-}
 
 interface WorkflowModuleProps {
   module: WorkflowModuleData;
   onUpdate: (moduleId: string, updates: Partial<WorkflowModuleData>) => void;
-  onDelete: (moduleId: string) => void;
-  canDelete: boolean;
+  onDelete?: (moduleId: string) => void;
+  canDelete?: boolean;
+  index: number;
+  isExecuting?: boolean;
+  isComplete?: boolean;
+  executionError?: string | null;
+  executionTime?: number;
 }
 
-export default function WorkflowModule({ 
-  module, 
-  onUpdate, 
+export default function WorkflowModule({
+  module,
+  onUpdate,
   onDelete,
-  canDelete 
+  canDelete = true,
+  index,
+  isExecuting = false,
+  isComplete = false,
+  executionError = null,
+  executionTime
 }: WorkflowModuleProps) {
   const [isPromptExpanded, setIsPromptExpanded] = useState(false);
-  const [editingPrompt, setEditingPrompt] = useState('');
-  const [isLeaving, setIsLeaving] = useState(false);
-  const [isTestingPrompt, setIsTestingPrompt] = useState(false);
+  const [editingPrompt, setEditingPrompt] = useState(module.prompt);
+  const [isTestLoading, setIsTestLoading] = useState(false);
+  const [testResponse, setTestResponse] = useState<string | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
-  const [responseData, setResponseData] = useState<ResponseData | null>(null);
-  const [isResponseExpanded, setIsResponseExpanded] = useState(true);
-  const [copySuccess, setCopySuccess] = useState(false);
+  const [testTimestamp, setTestTimestamp] = useState<string | null>(null);
 
   const handleExpandPrompt = () => {
     setIsPromptExpanded(true);
-    setEditingPrompt(module.prompt);
   };
 
   const handleSavePrompt = () => {
@@ -46,337 +44,209 @@ export default function WorkflowModule({
   };
 
   const handleCancelPrompt = () => {
-    setIsPromptExpanded(false);
     setEditingPrompt(module.prompt);
-  };
-
-  const handleModelChange = (model: string) => {
-    onUpdate(module.id, { selectedModel: model });
-  };
-
-  const handleDelete = () => {
-    setIsLeaving(true);
-    setTimeout(() => onDelete(module.id), 200);
-  };
-
-  const handleCopyResponse = async () => {
-    if (responseData?.response) {
-      await navigator.clipboard.writeText(responseData.response);
-      setCopySuccess(true);
-      setTimeout(() => setCopySuccess(false), 2000);
-    }
-  };
-
-  const formatTimestamp = (timestamp: string) => {
-    return new Date(timestamp).toLocaleString();
+    setIsPromptExpanded(false);
   };
 
   const handleTestPrompt = async () => {
-    setTestError(null);
-    setResponseData(null);
-    
     const apiKey = sessionStorage.getItem('anthropic_api_key');
     if (!apiKey) {
       setTestError('API key required. Please add your API key in settings.');
       return;
     }
 
-    if (!module.prompt.trim()) {
-      setTestError('Please enter a prompt first.');
-      return;
-    }
-
-    setIsTestingPrompt(true);
+    setIsTestLoading(true);
+    setTestError(null);
+    setTestResponse(null);
 
     try {
       const response = await fetch('/api/claude', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          prompt: module.prompt,
-          apiKey,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: module.prompt, apiKey }),
       });
 
       const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to test prompt');
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to test prompt');
-      }
-
-      setResponseData(data);
-      setIsResponseExpanded(true);
+      setTestResponse(data.response);
+      setTestTimestamp(new Date().toISOString());
     } catch (error) {
       setTestError(error instanceof Error ? error.message : 'Failed to test prompt');
     } finally {
-      setIsTestingPrompt(false);
+      setIsTestLoading(false);
     }
   };
 
-  const getPromptPreview = () => {
-    if (!module.prompt) return 'Click to edit prompt';
-    const firstLine = module.prompt.split('\n')[0];
-    return firstLine.length > 50 ? firstLine.substring(0, 50) + '...' : firstLine + '...';
+  const handleCopyResponse = () => {
+    if (testResponse) {
+      navigator.clipboard.writeText(testResponse);
+    }
   };
 
   return (
-    <div 
-      className={`bg-[var(--surface-1)] rounded-xl shadow-lg shadow-black/20 w-[480px] transition-all duration-200 ${
-        isLeaving ? 'opacity-0 transform scale-95' : 'opacity-100 transform scale-100'
-      }`}
-    >
-      {/* Module Header */}
-      <div className="p-4 border-b border-[var(--border)] flex justify-between items-center bg-[var(--surface-2)] rounded-t-xl">
-        <h2 className="text-xl font-semibold text-[var(--text-primary)]">{module.title}</h2>
-        {canDelete && (
-          <button
-            onClick={handleDelete}
-            className="w-7 h-7 rounded-lg bg-[var(--surface-3)] hover:bg-red-500/20 hover:text-red-500 flex items-center justify-center transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-[var(--surface-2)]"
-            aria-label="Delete module"
-          >
-            <svg
-              className="w-4 h-4 text-[var(--text-secondary)]"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
-        )}
-      </div>
+    <div className={`w-full premium-card rounded-xl overflow-hidden transition-all duration-300 ${
+      isExecuting ? 'ring-2 ring-blue-500/30 shadow-[var(--glow)]' : ''
+    }`}>
+      {/* Header */}
+      <div className="flex items-center justify-between p-4 border-b border-[var(--border)] bg-gradient-to-b from-[var(--surface-2)] to-[var(--surface-1)]">
+        <h3 className="font-semibold text-lg text-[var(--text-primary)] flex items-center gap-2">
+          {module.title}
+          {isExecuting && (
+            <span className="text-blue-400 text-sm font-normal animate-pulse flex items-center gap-1">
+              <LoadingSpinner className="w-3 h-3" />
+              Processing
+            </span>
+          )}
+          {isComplete && executionTime && (
+            <span className="text-green-400 text-sm font-normal flex items-center gap-1">
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              {(executionTime / 1000).toFixed(1)}s
+            </span>
+          )}
+          {executionError && (
+            <span className="text-red-400 text-sm font-normal flex items-center gap-1">
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Error
+            </span>
+          )}
+        </h3>
 
-      {/* Module Content */}
-      <div className="p-5 space-y-5">
-        {/* Model Selection */}
-        <div className="space-y-2.5">
-          <label htmlFor={`model-${module.id}`} className="block text-sm font-medium text-[var(--text-secondary)]">
-            Model
-          </label>
+        <div className="flex items-center gap-3">
           <select
-            id={`model-${module.id}`}
             value={module.selectedModel}
-            onChange={(e) => handleModelChange(e.target.value)}
-            className="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-lg py-2.5 px-3.5 text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent transition-shadow duration-200"
+            onChange={(e) => onUpdate(module.id, { selectedModel: e.target.value })}
+            className="premium-input px-3 py-1.5 text-sm text-[var(--text-primary)] rounded-lg 
+              appearance-none bg-[var(--surface-2)] cursor-pointer
+              focus:outline-none focus:ring-2 focus:ring-blue-500/30
+              pr-8 relative"
+            style={{
+              backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23666' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`,
+              backgroundPosition: `right 0.5rem center`,
+              backgroundRepeat: `no-repeat`,
+              backgroundSize: `1.5em 1.5em`
+            }}
           >
-            {AVAILABLE_MODELS.map((model) => (
-              <option key={model} value={model}>
-                {model}
-              </option>
+            {AVAILABLE_MODELS.map(model => (
+              <option key={model} value={model}>{model}</option>
             ))}
           </select>
-        </div>
 
-        {/* Prompt Section */}
-        <div className="space-y-2.5">
-          <div className="flex justify-between items-center">
-            <label className="block text-sm font-medium text-[var(--text-secondary)]">
-              Prompt
-            </label>
-            {!isPromptExpanded && module.prompt && (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleTestPrompt}
-                  disabled={isTestingPrompt}
-                  className="px-3 py-1.5 bg-[var(--surface-3)] hover:bg-[var(--surface-2)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded-lg text-sm font-medium transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[var(--border)] focus:ring-offset-2 focus:ring-offset-[var(--surface-1)] flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isTestingPrompt ? (
-                    <>
-                      <LoadingSpinner />
-                      Testing...
-                    </>
-                  ) : responseData ? (
-                    <>
-                      <svg
-                        className="w-4 h-4 text-green-500"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M5 13l4 4L19 7"
-                        />
-                      </svg>
-                      Test Again
-                    </>
-                  ) : testError ? (
-                    <>
-                      <svg
-                        className="w-4 h-4 text-red-400"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                      </svg>
-                      Retry
-                    </>
-                  ) : (
-                    <>
-                      <svg
-                        className="w-4 h-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
-                        />
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                      </svg>
-                      Test Prompt
-                    </>
-                  )}
-                </button>
-
-                {testError && (
-                  <div className="flex-1 text-red-400 text-sm animate-fade-in flex items-center gap-2">
-                    <svg
-                      className="w-4 h-4 flex-shrink-0"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
-                    </svg>
-                    <span className="truncate">{testError}</span>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-          
-          {!isPromptExpanded ? (
-            <>
-              <button 
-                onClick={handleExpandPrompt}
-                className="w-full text-left p-4 bg-[var(--surface-2)] rounded-lg cursor-pointer hover:bg-[var(--surface-3)] transition-colors duration-200 group"
+          {onDelete && canDelete && (
+            <button
+              onClick={() => onDelete(module.id)}
+              className="p-1.5 text-[var(--text-secondary)] hover:text-red-400 rounded-lg 
+                transition-all duration-200 hover:bg-red-500/10 group"
+              aria-label="Delete module"
+            >
+              <svg className="w-4 h-4 transition-transform duration-200 group-hover:scale-110" 
+                fill="none" viewBox="0 0 24 24" stroke="currentColor"
               >
-                <p className="text-[var(--text-secondary)] text-sm group-hover:text-[var(--text-primary)] transition-colors duration-200">
-                  {getPromptPreview()}
-                </p>
-              </button>
-
-              {testError && (
-                <div className="mt-3 p-4 bg-[var(--surface-2)] rounded-lg border border-[var(--border)]">
-                  <p className="text-red-400 text-sm">{testError}</p>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="space-y-3 animate-fade-in">
-              <textarea
-                value={editingPrompt}
-                onChange={(e) => setEditingPrompt(e.target.value)}
-                className="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-lg py-3 px-4 text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent min-h-[160px] resize-y transition-shadow duration-200"
-                placeholder="Enter your prompt here..."
-                autoFocus
-              />
-              <div className="flex gap-2">
-                <button
-                  onClick={handleSavePrompt}
-                  className="px-4 py-2 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white rounded-lg font-medium transition-all duration-200 hover-glow focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:ring-offset-2 focus:ring-offset-[var(--surface-1)]"
-                >
-                  Save
-                </button>
-                <button
-                  onClick={handleCancelPrompt}
-                  className="px-4 py-2 bg-[var(--surface-3)] hover:bg-[var(--surface-2)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded-lg font-medium transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[var(--border)] focus:ring-offset-2 focus:ring-offset-[var(--surface-1)]"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           )}
         </div>
+      </div>
 
-        {/* Response Section */}
-        {responseData && !isPromptExpanded && (
-          <div className="space-y-2.5 animate-fade-in border-t border-[var(--border)] pt-5">
-            <div className="flex justify-between items-center">
-              <label className="block text-sm font-medium text-[var(--text-secondary)]">
-                Response
-              </label>
+      {/* Content */}
+      <div className="p-4 space-y-4 bg-[var(--surface-1)]">
+        {isPromptExpanded ? (
+          <div className="space-y-3 animate-fade-in">
+            <textarea
+              value={editingPrompt}
+              onChange={(e) => setEditingPrompt(e.target.value)}
+              placeholder="Define this agent's role and behavior..."
+              className="w-full h-40 p-3 premium-input rounded-lg text-sm text-[var(--text-primary)]
+                focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none
+                placeholder:text-[var(--text-secondary)]"
+              autoFocus
+            />
+            <div className="flex justify-end gap-2">
               <button
-                onClick={() => setIsResponseExpanded(!isResponseExpanded)}
-                className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                onClick={handleCancelPrompt}
+                className="px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] 
+                  transition-colors rounded-lg hover:bg-[var(--surface-2)]"
               >
-                <svg
-                  className={`w-5 h-5 transform transition-transform duration-200 ${
-                    isResponseExpanded ? 'rotate-180' : ''
-                  }`}
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M19 9l-7 7-7-7"
-                  />
-                </svg>
+                Cancel
+              </button>
+              <button
+                onClick={handleSavePrompt}
+                className="px-3 py-1.5 text-sm bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white 
+                  rounded-lg transition-all duration-200 hover:shadow-[var(--glow)]"
+              >
+                Save
               </button>
             </div>
+          </div>
+        ) : (
+          <div
+            onClick={handleExpandPrompt}
+            className="p-3 premium-input rounded-lg cursor-pointer transition-all duration-200
+              hover:border-[var(--primary)] hover:shadow-[var(--glow)] group"
+          >
+            <p className="text-sm text-[var(--text-secondary)] group-hover:text-[var(--text-primary)] transition-colors">
+              {module.prompt ? module.prompt.split('\n')[0] + '...' : 'Click to edit role & instructions'}
+            </p>
+          </div>
+        )}
 
-            {isResponseExpanded && (
-              <div className="space-y-3">
-                <div className="relative">
-                  <pre className="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-lg py-3 px-4 text-[var(--text-primary)] whitespace-pre-wrap text-sm font-mono overflow-x-auto">
-                    {responseData.response}
-                  </pre>
+        <div className="flex justify-end">
+          <button
+            onClick={handleTestPrompt}
+            disabled={isTestLoading}
+            className="px-3 py-1.5 text-sm premium-input rounded-lg transition-all duration-200
+              hover:border-[var(--primary)] hover:shadow-[var(--glow)]
+              disabled:opacity-50 disabled:cursor-not-allowed
+              flex items-center gap-2"
+          >
+            {isTestLoading ? (
+              <>
+                <LoadingSpinner className="w-4 h-4" />
+                <span>Testing...</span>
+              </>
+            ) : (
+              <>Test</>
+            )}
+          </button>
+        </div>
+
+        {/* Test Results */}
+        {(testResponse || testError) && (
+          <div className={`mt-4 p-4 rounded-lg premium-card ${
+            testError ? 'bg-red-500/5 border-red-500/20' : ''
+          }`}>
+            {testError ? (
+              <p className="text-sm text-red-400">{testError}</p>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-[var(--text-secondary)]">
+                    {testTimestamp && new Date(testTimestamp).toLocaleTimeString()}
+                  </span>
                   <button
                     onClick={handleCopyResponse}
-                    className="absolute top-2 right-2 p-1.5 rounded-md bg-[var(--surface-3)] hover:bg-[var(--surface-1)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-                    title="Copy response"
+                    className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] 
+                      transition-colors flex items-center gap-1 group"
                   >
-                    {copySuccess ? (
-                      <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    ) : (
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                      </svg>
-                    )}
+                    <svg className="w-3 h-3 transition-transform duration-200 group-hover:scale-110" 
+                      fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" 
+                      />
+                    </svg>
+                    Copy
                   </button>
                 </div>
-
-                <div className="flex justify-between items-center text-xs text-[var(--text-secondary)]">
-                  <span>
-                    {formatTimestamp(responseData.timestamp)}
-                  </span>
-                  <span>
-                    Tokens: {responseData.usage.input_tokens} in / {responseData.usage.output_tokens} out
-                  </span>
+                <div className="p-3 bg-[var(--surface-0)] rounded-lg border border-[var(--border)]">
+                  <p className="text-sm text-[var(--text-primary)] whitespace-pre-wrap font-mono">
+                    {testResponse}
+                  </p>
                 </div>
               </div>
             )}

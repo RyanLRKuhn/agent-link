@@ -1,57 +1,101 @@
 'use client';
 
 import { useState } from 'react';
+import { WorkflowModuleData, AVAILABLE_MODELS } from '../types/workflow';
 
-export default function WorkflowModule() {
-  const [selectedModel, setSelectedModel] = useState('Claude Sonnet 4');
+interface WorkflowModuleProps {
+  module: WorkflowModuleData;
+  onUpdate: (moduleId: string, updates: Partial<WorkflowModuleData>) => void;
+  onDelete: (moduleId: string) => void;
+  canDelete: boolean;
+}
+
+export default function WorkflowModule({ 
+  module, 
+  onUpdate, 
+  onDelete,
+  canDelete 
+}: WorkflowModuleProps) {
   const [isPromptExpanded, setIsPromptExpanded] = useState(false);
-  const [prompt, setPrompt] = useState('');
   const [editingPrompt, setEditingPrompt] = useState('');
+  const [isLeaving, setIsLeaving] = useState(false);
 
   const handleExpandPrompt = () => {
-    console.log('handleExpandPrompt');
     setIsPromptExpanded(true);
-    setEditingPrompt(prompt);
+    setEditingPrompt(module.prompt);
   };
 
   const handleSavePrompt = () => {
-    setPrompt(editingPrompt);
+    onUpdate(module.id, { prompt: editingPrompt });
     setIsPromptExpanded(false);
   };
 
   const handleCancelPrompt = () => {
     setIsPromptExpanded(false);
-    setEditingPrompt(prompt);
+    setEditingPrompt(module.prompt);
   };
 
-  // Get first line of prompt for collapsed view
+  const handleModelChange = (model: string) => {
+    onUpdate(module.id, { selectedModel: model });
+  };
+
+  const handleDelete = () => {
+    setIsLeaving(true);
+    setTimeout(() => onDelete(module.id), 200);
+  };
+
   const getPromptPreview = () => {
-    if (!prompt) return 'Click to edit prompt';
-    const firstLine = prompt.split('\n')[0];
+    if (!module.prompt) return 'Click to edit prompt';
+    const firstLine = module.prompt.split('\n')[0];
     return firstLine.length > 50 ? firstLine.substring(0, 50) + '...' : firstLine + '...';
   };
 
   return (
-    <div className="bg-gray-800 rounded-lg shadow-lg w-[480px]">
+    <div 
+      className={`bg-[var(--surface-1)] rounded-xl shadow-lg shadow-black/20 w-[480px] transition-all duration-200 ${
+        isLeaving ? 'opacity-0 transform scale-95' : 'opacity-100 transform scale-100'
+      }`}
+    >
       {/* Module Header */}
-      <div className="p-4 border-b border-gray-700">
-        <h2 className="text-xl font-semibold text-white">Agent 1</h2>
+      <div className="p-4 border-b border-[var(--border)] flex justify-between items-center bg-[var(--surface-2)] rounded-t-xl">
+        <h2 className="text-xl font-semibold text-[var(--text-primary)]">{module.title}</h2>
+        {canDelete && (
+          <button
+            onClick={handleDelete}
+            className="w-7 h-7 rounded-lg bg-[var(--surface-3)] hover:bg-red-500/20 hover:text-red-500 flex items-center justify-center transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-[var(--surface-2)]"
+            aria-label="Delete module"
+          >
+            <svg
+              className="w-4 h-4 text-[var(--text-secondary)]"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* Module Content */}
-      <div className="p-4 space-y-4">
+      <div className="p-5 space-y-5">
         {/* Model Selection */}
-        <div className="space-y-2">
-          <label htmlFor="model" className="block text-sm font-medium text-gray-300">
+        <div className="space-y-2.5">
+          <label htmlFor={`model-${module.id}`} className="block text-sm font-medium text-[var(--text-secondary)]">
             Model
           </label>
           <select
-            id="model"
-            value={selectedModel}
-            onChange={(e) => setSelectedModel(e.target.value)}
-            className="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            id={`model-${module.id}`}
+            value={module.selectedModel}
+            onChange={(e) => handleModelChange(e.target.value)}
+            className="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-lg py-2.5 px-3.5 text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent transition-shadow duration-200"
           >
-            {['Claude Sonnet 4', 'GPT-4', 'Claude Haiku'].map((model) => (
+            {AVAILABLE_MODELS.map((model) => (
               <option key={model} value={model}>
                 {model}
               </option>
@@ -60,37 +104,39 @@ export default function WorkflowModule() {
         </div>
 
         {/* Prompt Section */}
-        <div className="mt-4">
-          <label className="block text-sm font-medium text-gray-300 mb-2">
+        <div className="space-y-2.5">
+          <label className="block text-sm font-medium text-[var(--text-secondary)]">
             Prompt
           </label>
           
           {!isPromptExpanded ? (
             <button 
               onClick={handleExpandPrompt}
-              className="w-full text-left p-4 bg-gray-700 rounded-md cursor-pointer hover:bg-gray-650 transition-colors"
+              className="w-full text-left p-4 bg-[var(--surface-2)] rounded-lg cursor-pointer hover:bg-[var(--surface-3)] transition-colors duration-200 group"
             >
-              <p className="text-gray-400 text-sm">{getPromptPreview()}</p>
+              <p className="text-[var(--text-secondary)] text-sm group-hover:text-[var(--text-primary)] transition-colors duration-200">
+                {getPromptPreview()}
+              </p>
             </button>
           ) : (
             <div className="space-y-3 animate-fade-in">
               <textarea
                 value={editingPrompt}
                 onChange={(e) => setEditingPrompt(e.target.value)}
-                className="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[160px] resize-y"
+                className="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-lg py-3 px-4 text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent min-h-[160px] resize-y transition-shadow duration-200"
                 placeholder="Enter your prompt here..."
                 autoFocus
               />
               <div className="flex gap-2">
                 <button
                   onClick={handleSavePrompt}
-                  className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800"
+                  className="px-4 py-2 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white rounded-lg font-medium transition-all duration-200 hover-glow focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:ring-offset-2 focus:ring-offset-[var(--surface-1)]"
                 >
                   Save
                 </button>
                 <button
                   onClick={handleCancelPrompt}
-                  className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:ring-offset-gray-800"
+                  className="px-4 py-2 bg-[var(--surface-3)] hover:bg-[var(--surface-2)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded-lg font-medium transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[var(--border)] focus:ring-offset-2 focus:ring-offset-[var(--surface-1)]"
                 >
                   Cancel
                 </button>

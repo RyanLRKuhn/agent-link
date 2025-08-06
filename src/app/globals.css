@@ -1,8 +1,18 @@
 @import "tailwindcss";
 
 :root {
+  /* Core theme colors */
   --background: #0a0a0a;
   --foreground: #ededed;
+  --primary: #3b82f6;
+  --primary-hover: #2563eb;
+  --surface-0: #111111;
+  --surface-1: #1a1a1a;
+  --surface-2: #222222;
+  --surface-3: #2a2a2a;
+  --border: #333333;
+  --text-primary: #ffffff;
+  --text-secondary: #a3a3a3;
 }
 
 @theme inline {
@@ -13,7 +23,7 @@
 }
 
 body {
-  background: var(--background);
+  background: var(--surface-0);
   color: var(--foreground);
   font-family: var(--font-sans);
 }
@@ -25,16 +35,16 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #1a1a1a;
+  background: var(--surface-1);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #333;
+  background: var(--surface-3);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #444;
+  background: var(--border);
 }
 
 /* Custom select styling */
@@ -47,6 +57,7 @@ select {
   padding-right: 2.5rem;
 }
 
+/* Animations */
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -58,6 +69,49 @@ select {
   }
 }
 
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
 .animate-fade-in {
   animation: fadeIn 0.2s ease-out forwards;
+}
+
+.animate-slide-in {
+  animation: slideIn 0.3s ease-out forwards;
+}
+
+/* Tooltip positioning */
+.tooltip-top .absolute {
+  bottom: calc(100% + 0.5rem);
+}
+
+.tooltip-bottom .absolute {
+  top: calc(100% + 0.5rem);
+}
+
+/* Button hover effects */
+.hover-glow:hover {
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+}
+
+/* Module connection line gradient */
+.module-connection {
+  background: linear-gradient(180deg, transparent, var(--border) 20%, var(--border) 80%, transparent);
 }

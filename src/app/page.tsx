@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import WorkflowModule from './components/WorkflowModule';
 import AddModuleButton from './components/AddModuleButton';
+import SettingsDropdown from './components/SettingsDropdown';
 import { WorkflowModuleData, AVAILABLE_MODELS } from './types/workflow';
 
 export default function Home() {
@@ -63,6 +64,9 @@ export default function Home() {
             </div>
             <h1 className="text-xl font-semibold text-[var(--text-primary)]">AgentLink</h1>
           </div>
+          
+          {/* Settings Dropdown */}
+          <SettingsDropdown />
         </div>
       </header>
 

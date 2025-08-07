@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { getCustomProviders, saveCustomProvider, deleteCustomProvider, exportProviders, importProviders } from '../utils/customProviders';
+import { getCustomProviders, saveCustomProvider, deleteCustomProvider, exportProviders, importProviders, CustomProvider, updateCustomProvider } from '../utils/customProviders';
 import CustomProviderForm from './CustomProviderForm';
 
 /**
@@ -84,6 +84,7 @@ export default function SettingsSidebar() {
   const [showCustomProviderForm, setShowCustomProviderForm] = useState(false);
   const [customProviders, setCustomProviders] = useState(getCustomProviders());
   const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation | null>(null);
+  const [editingProvider, setEditingProvider] = useState<CustomProvider | null>(null);
 
   /**
    * Load saved API keys from sessionStorage on mount
@@ -680,14 +681,37 @@ export default function SettingsSidebar() {
                     </div>
                   </div>
 
-                  {showCustomProviderForm ? (
+                  {/* Custom Provider Form */}
+                  {showCustomProviderForm && (
                     <div className="mb-4">
                       <CustomProviderForm
-                        onSave={handleSaveProvider}
-                        onCancel={() => setShowCustomProviderForm(false)}
+                        onSave={(config) => {
+                          if (editingProvider) {
+                            // Update existing provider
+                            updateCustomProvider(editingProvider.id, config);
+                          } else {
+                            // Save new provider
+                            saveCustomProvider(config);
+                          }
+                          setCustomProviders(getCustomProviders());
+                          setShowCustomProviderForm(false);
+                          setEditingProvider(null);
+                          setRefreshStatus({
+                            type: 'success',
+                            message: `Provider ${editingProvider ? 'updated' : 'added'} successfully`
+                          });
+                        }}
+                        onCancel={() => {
+                          setShowCustomProviderForm(false);
+                          setEditingProvider(null);
+                        }}
+                        initialProvider={editingProvider || undefined}
+                        mode={editingProvider ? 'edit' : 'create'}
                       />
                     </div>
-                  ) : customProviders.length > 0 ? (
+                  )}
+
+                  {customProviders.length > 0 ? (
                     <div className="space-y-2">
                       {customProviders.map(provider => (
                         <div
@@ -704,18 +728,37 @@ export default function SettingsSidebar() {
                               )}
                             </div>
                           </div>
-                          <button
-                            onClick={() => setDeleteConfirmation({
-                              providerId: provider.id,
-                              providerName: provider.name
-                            })}
-                            className="p-1.5 text-text-secondary hover:text-error
-                              hover:bg-error/10 rounded transition-colors"
-                          >
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                          </button>
+                          <div className="flex items-center gap-2">
+                            {/* Edit Button */}
+                            <button
+                              onClick={() => {
+                                setEditingProvider(provider);
+                                setShowCustomProviderForm(true);
+                              }}
+                              className="p-1.5 text-text-secondary hover:text-primary
+                                hover:bg-primary/10 rounded transition-colors"
+                              title="Edit provider"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                              </svg>
+                            </button>
+                            {/* Delete Button */}
+                            <button
+                              onClick={() => setDeleteConfirmation({
+                                providerId: provider.id,
+                                providerName: provider.name
+                              })}
+                              className="p-1.5 text-text-secondary hover:text-error
+                                hover:bg-error/10 rounded transition-colors"
+                              title="Delete provider"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>

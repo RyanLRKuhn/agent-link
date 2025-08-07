@@ -1,29 +1,46 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { PROVIDER_TEMPLATES, ProviderTemplate } from '../utils/providerTemplates';
+import { CustomProvider } from '../utils/customProviders';
 
-interface CustomProviderForm {
+interface CustomProviderFormProps {
   onSave: (config: any) => void;
   onCancel: () => void;
+  initialProvider?: CustomProvider; // Add support for editing
+  mode?: 'create' | 'edit';
 }
 
-export default function CustomProviderForm({ onSave, onCancel }: CustomProviderForm) {
-  const [name, setName] = useState('');
-  const [endpoint, setEndpoint] = useState('');
-  const [authType, setAuthType] = useState<'bearer' | 'query' | 'header'>('bearer');
-  const [authKey, setAuthKey] = useState('Authorization');
-  const [apiKey, setApiKey] = useState('');
+export default function CustomProviderForm({
+  onSave,
+  onCancel,
+  initialProvider,
+  mode = 'create'
+}: CustomProviderFormProps) {
+  const [name, setName] = useState(initialProvider?.name || '');
+  const [endpoint, setEndpoint] = useState(initialProvider?.endpoint || '');
+  const [authType, setAuthType] = useState<'bearer' | 'query' | 'header'>(
+    initialProvider?.auth.type || 'bearer'
+  );
+  const [authKey, setAuthKey] = useState(initialProvider?.auth.key || 'Authorization');
+  const [apiKey, setApiKey] = useState(initialProvider?.auth.value || '');
   const [showApiKey, setShowApiKey] = useState(false);
-  const [requestTemplate, setRequestTemplate] = useState('{}');
-  const [responsePath, setResponsePath] = useState('');
-  const [models, setModels] = useState('');
+  const [requestTemplate, setRequestTemplate] = useState(
+    initialProvider?.requestTemplate 
+      ? JSON.stringify(initialProvider.requestTemplate, null, 2)
+      : '{}'
+  );
+  const [responsePath, setResponsePath] = useState(initialProvider?.responsePath || '');
+  const [models, setModels] = useState(initialProvider?.models?.join(', ') || '');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<string>('custom');
   const [documentation, setDocumentation] = useState<ProviderTemplate['documentation'] | null>(null);
 
-  const handleTemplateChange = (templateId: string) => {
+  // Only allow template selection in create mode
+  const handleTemplateChange = useCallback((templateId: string) => {
+    if (mode === 'edit') return; // Disable template selection in edit mode
+
     const template = PROVIDER_TEMPLATES.find(t => t.id === templateId);
     if (template) {
       setSelectedTemplate(templateId);
@@ -45,7 +62,7 @@ export default function CustomProviderForm({ onSave, onCancel }: CustomProviderF
         setModels('');
       }
     }
-  };
+  }, [mode]);
 
   // Helper function to get user-friendly auth type name
   const getAuthTypeName = (type: 'bearer' | 'query' | 'header') => {
@@ -134,30 +151,17 @@ export default function CustomProviderForm({ onSave, onCancel }: CustomProviderF
 
   const handleSave = () => {
     try {
+      const requestConfig = JSON.parse(requestTemplate);
+
       // Basic validation
       if (!name.trim()) throw new Error('Provider name is required');
       if (!endpoint.trim()) throw new Error('Endpoint URL is required');
-      if (!apiKey.trim()) throw new Error('API key is required');
       if (!responsePath.trim()) throw new Error('Response path is required');
-      if (!models.trim()) throw new Error('At least one model is required');
-
-      // Validate URL format
-      try {
-        new URL(endpoint);
-      } catch (error) {
-        throw new Error('Invalid URL format');
-      }
-
-      // Validate JSON format
-      let requestConfig;
-      try {
-        requestConfig = JSON.parse(requestTemplate);
-        if (typeof requestConfig !== 'object') throw new Error();
-      } catch (error) {
-        throw new Error('Invalid JSON format in request template');
-      }
+      if (!requestConfig) throw new Error('Invalid request template JSON');
+      if (!apiKey.trim()) throw new Error('API key is required');
 
       const config = {
+        ...(initialProvider && { id: initialProvider.id }), // Preserve ID when editing
         name,
         endpoint,
         auth: {
@@ -167,7 +171,8 @@ export default function CustomProviderForm({ onSave, onCancel }: CustomProviderF
         },
         requestTemplate: requestConfig,
         responsePath,
-        models: models.split(',').map(m => m.trim()).filter(Boolean)
+        models: models.split(',').map(m => m.trim()).filter(Boolean),
+        ...(initialProvider && { createdAt: initialProvider.createdAt }) // Preserve creation date
       };
 
       onSave(config);
@@ -178,25 +183,34 @@ export default function CustomProviderForm({ onSave, onCancel }: CustomProviderF
 
   return (
     <div className="space-y-4">
-      {/* Template Selector */}
-      <div>
-        <label className="block text-sm font-medium text-text-secondary mb-1">
-          Provider Template
-        </label>
-        <select
-          value={selectedTemplate}
-          onChange={(e) => handleTemplateChange(e.target.value)}
-          className="w-full px-3 py-1.5 text-sm rounded-lg bg-surface-2
-            border border-surface-2 focus:border-primary
-            focus:ring-1 focus:ring-primary"
-        >
-          {PROVIDER_TEMPLATES.map(template => (
-            <option key={template.id} value={template.id}>
-              {template.name} - {template.description}
-            </option>
-          ))}
-        </select>
+      {/* Form Title */}
+      <div className="flex items-center justify-between mb-6">
+        <h3 className="text-lg font-medium">
+          {mode === 'create' ? 'Add Custom Provider' : 'Edit Provider'}
+        </h3>
       </div>
+
+      {/* Template Selector - Only show in create mode */}
+      {mode === 'create' && (
+        <div>
+          <label className="block text-sm font-medium text-text-secondary mb-1">
+            Provider Template
+          </label>
+          <select
+            value={selectedTemplate}
+            onChange={(e) => handleTemplateChange(e.target.value)}
+            className="w-full px-3 py-1.5 text-sm rounded-lg bg-surface-2
+              border border-surface-2 focus:border-primary
+              focus:ring-1 focus:ring-primary"
+          >
+            {PROVIDER_TEMPLATES.map(template => (
+              <option key={template.id} value={template.id}>
+                {template.name} - {template.description}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Provider Name */}
       <div>
@@ -484,7 +498,7 @@ export default function CustomProviderForm({ onSave, onCancel }: CustomProviderF
             bg-primary hover:bg-primary-hover text-white
             transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Save Provider
+          {mode === 'create' ? 'Save Provider' : 'Update Provider'}
         </button>
       </div>
     </div>

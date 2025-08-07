@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { MODEL_IDS } from '../types/workflow';
 
 interface ApiKeyStatus {
@@ -18,6 +18,8 @@ interface RefreshStatus {
 
 export default function SettingsDropdown() {
   const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const [anthropicKey, setAnthropicKey] = useState('');
   const [openaiKey, setOpenaiKey] = useState('');
   const [keyStatus, setKeyStatus] = useState<Record<string, ApiKeyStatus>>({
@@ -35,13 +37,12 @@ export default function SettingsDropdown() {
     }
   });
   const [refreshStatus, setRefreshStatus] = useState<RefreshStatus | null>(null);
-
-  // Track previous key values to detect changes
   const [previousKeys, setPreviousKeys] = useState({
     anthropic: '',
     openai: ''
   });
 
+  // Memoize fetchAvailableModels to prevent recreation on every render
   const fetchAvailableModels = useCallback(async (keys: { anthropic?: string; openai?: string }) => {
     setRefreshStatus(null);
 
@@ -83,12 +84,6 @@ export default function SettingsDropdown() {
         timestamp: Date.now()
       });
 
-      // Trigger storage event for ModelSelect components
-      window.dispatchEvent(new StorageEvent('storage', {
-        key: 'available_models',
-        newValue: JSON.stringify(updatedModels)
-      }));
-
     } catch (error) {
       console.error('Error fetching models:', error);
       setRefreshStatus({
@@ -116,7 +111,7 @@ export default function SettingsDropdown() {
       const endpoint = provider === 'anthropic' ? '/api/claude' : '/api/openai';
       const model = provider === 'anthropic' 
         ? MODEL_IDS.CLAUDE_SONNET
-        : MODEL_IDS.GPT4;
+        : 'gpt-3.5-turbo';
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -145,14 +140,10 @@ export default function SettingsDropdown() {
         }
       }));
 
-      // Check if this is a new or changed key
+      // Only fetch models if the key has changed
       if (key !== previousKeys[provider]) {
         setPreviousKeys(prev => ({ ...prev, [provider]: key }));
-        // Fetch models with the new key
-        await fetchAvailableModels({
-          ...previousKeys,
-          [provider]: key
-        });
+        // Don't automatically fetch models - let user click refresh button
       }
 
     } catch (error) {
@@ -193,14 +184,31 @@ export default function SettingsDropdown() {
       }
     }));
 
-    // Clear refresh status after delay
+    // Handle click outside
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        dropdownRef.current &&
+        buttonRef.current &&
+        !dropdownRef.current.contains(event.target as Node) &&
+        !buttonRef.current.contains(event.target as Node)
+      ) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Clear refresh status after delay
+  useEffect(() => {
     if (refreshStatus) {
       const timer = setTimeout(() => {
         setRefreshStatus(null);
       }, 3000);
       return () => clearTimeout(timer);
     }
-  }, []);
+  }, [refreshStatus?.timestamp]);
 
   const getStatusIcon = (status: ApiKeyStatus) => {
     if (status.isLoading) {
@@ -239,6 +247,7 @@ export default function SettingsDropdown() {
     <div className="relative">
       {/* Settings Button */}
       <button
+        ref={buttonRef}
         onClick={() => setIsOpen(!isOpen)}
         className={`p-2 rounded-lg transition-colors duration-200 relative
           ${isOpen ? 'bg-[var(--surface-2)]' : 'hover:bg-[var(--surface-2)]'}`}
@@ -258,7 +267,11 @@ export default function SettingsDropdown() {
 
       {/* Dropdown Panel */}
       {isOpen && (
-        <div id="settings-dropdown-panel" className="absolute right-0 mt-2 w-96 bg-[var(--surface-1)] rounded-xl border border-[var(--border)] shadow-xl z-50">
+        <div
+          ref={dropdownRef}
+          id="settings-dropdown-panel"
+          className="absolute right-0 mt-2 w-96 bg-[var(--surface-1)] rounded-xl border border-[var(--border)] shadow-xl z-50"
+        >
           <div className="p-4 space-y-4">
             <h3 className="text-lg font-semibold text-[var(--text-primary)]">Settings</h3>
 

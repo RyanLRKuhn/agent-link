@@ -37,6 +37,7 @@ export default function WorkflowModule({
 
   const handleExpandPrompt = () => {
     setIsPromptExpanded(true);
+    setEditingPrompt(module.prompt);
   };
 
   const handleSavePrompt = () => {
@@ -49,13 +50,31 @@ export default function WorkflowModule({
     setIsPromptExpanded(false);
   };
 
+  const handleProviderChange = (provider: 'openai' | 'anthropic' | null) => {
+    console.log('Provider change:', provider); // Debug log
+    onUpdate(module.id, {
+      provider,
+      selectedModel: null // Reset model when provider changes
+    });
+  };
+
+  const handleModelChange = (model: string | null) => {
+    console.log('Model change:', model); // Debug log
+    onUpdate(module.id, { selectedModel: model });
+  };
+
   const handleTestPrompt = async () => {
-    const apiKey = module.selectedModel.startsWith('claude-')
+    if (!module.provider || !module.selectedModel) {
+      setTestError('Please select a provider and model first.');
+      return;
+    }
+
+    const apiKey = module.provider === 'anthropic'
       ? sessionStorage.getItem('anthropic_api_key')
       : sessionStorage.getItem('openai_api_key');
 
     if (!apiKey) {
-      setTestError('API key required. Please add your API key in settings.');
+      setTestError(`Please add your ${module.provider === 'anthropic' ? 'Anthropic' : 'OpenAI'} API key in settings.`);
       return;
     }
 
@@ -64,17 +83,14 @@ export default function WorkflowModule({
     setTestResponse(null);
 
     try {
-      const endpoint = module.selectedModel.startsWith('claude-')
-        ? '/api/claude'
-        : '/api/openai';
-
+      const endpoint = module.provider === 'anthropic' ? '/api/claude' : '/api/openai';
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt: module.prompt,
           apiKey,
-          model: module.selectedModel // Pass the selected model ID
+          model: module.selectedModel
         }),
       });
 
@@ -130,18 +146,20 @@ export default function WorkflowModule({
 
         <div className="flex items-center gap-3">
           <ModelSelect
-            value={module.selectedModel}
-            onChange={(value) => onUpdate(module.id, { selectedModel: value })}
+            provider={module.provider}
+            model={module.selectedModel}
+            onProviderChange={handleProviderChange}
+            onModelChange={handleModelChange}
           />
 
           {onDelete && canDelete && (
             <button
               onClick={() => onDelete(module.id)}
-              className="p-1.5 text-[var(--text-secondary)] hover:text-red-400 rounded-lg 
+              className="p-1.5 text-[var(--text-secondary)] hover:text-red-400 rounded-lg
                 transition-all duration-200 hover:bg-red-500/10 group"
               aria-label="Delete module"
             >
-              <svg className="w-4 h-4 transition-transform duration-200 group-hover:scale-110" 
+              <svg className="w-4 h-4 transition-transform duration-200 group-hover:scale-110"
                 fill="none" viewBox="0 0 24 24" stroke="currentColor"
               >
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

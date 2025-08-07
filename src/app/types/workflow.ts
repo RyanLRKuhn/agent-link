@@ -1,7 +1,10 @@
+export type Provider = 'openai' | 'anthropic';
+
 export interface WorkflowModuleData {
   id: string;
   title: string;
-  selectedModel: string;
+  provider: Provider | null;
+  selectedModel: string | null;
   prompt: string;
 }
 
@@ -17,6 +20,12 @@ export interface WorkflowResult {
   };
 }
 
+// Provider display names
+export const PROVIDER_NAMES: Record<Provider, string> = {
+  openai: 'OpenAI',
+  anthropic: 'Anthropic'
+} as const;
+
 // Internal model IDs used by the APIs
 export const MODEL_IDS = {
   CLAUDE_SONNET: 'claude-3-5-sonnet-20241022',
@@ -27,11 +36,10 @@ export const MODEL_IDS = {
 } as const;
 
 // Available models for selection (fallback list)
-export const AVAILABLE_MODELS = [
-  MODEL_IDS.CLAUDE_SONNET,
-  MODEL_IDS.GPT4,
-  MODEL_IDS.GPT4_MINI,
-] as const;
+export const FALLBACK_MODELS: Record<Provider, string[]> = {
+  openai: [MODEL_IDS.GPT4, MODEL_IDS.GPT4_MINI],
+  anthropic: [MODEL_IDS.CLAUDE_SONNET],
+};
 
 // Display name patterns for dynamic model matching
 const MODEL_DISPLAY_PATTERNS: Array<[RegExp, (match: RegExpMatchArray) => string]> = [
@@ -62,8 +70,6 @@ const STATIC_DISPLAY_NAMES: Record<string, string> = {
 
 /**
  * Get a user-friendly display name for a model ID
- * @param modelId The raw model identifier
- * @returns A user-friendly display name
  */
 export function getModelDisplayName(modelId: string): string {
   // Check static mappings first
@@ -84,5 +90,14 @@ export function getModelDisplayName(modelId: string): string {
     .split('-')
     .map(part => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
-    .replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3'); // Format dates YYYY-MM-DD
+    .replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3');
+}
+
+/**
+ * Get the provider for a given model ID
+ */
+export function getProviderFromModel(modelId: string): Provider | null {
+  if (modelId.startsWith('gpt-')) return 'openai';
+  if (modelId.startsWith('claude-')) return 'anthropic';
+  return null;
 } 

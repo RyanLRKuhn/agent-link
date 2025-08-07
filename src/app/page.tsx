@@ -9,14 +9,15 @@ import WorkflowOutput from './components/WorkflowOutput';
 import ErrorDisplay from './components/ErrorDisplay';
 import ProgressBar from './components/ProgressBar';
 import StatusIndicator from './components/StatusIndicator';
-import { WorkflowModuleData, AVAILABLE_MODELS } from './types/workflow';
+import { WorkflowModuleData } from './types/workflow';
 import { useWorkflowStore } from './store/workflowStore';
 
 export default function Home() {
   const [modules, setModules] = useState<WorkflowModuleData[]>([{
     id: '1',
     title: 'Agent 1',
-    selectedModel: AVAILABLE_MODELS[0],
+    provider: null,
+    selectedModel: null,
     prompt: ''
   }]);
 
@@ -33,38 +34,38 @@ export default function Home() {
 
   const createModule = (index: number) => {
     const newModule: WorkflowModuleData = {
-      id: Date.now().toString(),
+      id: String(Date.now()),
       title: `Agent ${modules.length + 1}`,
-      selectedModel: AVAILABLE_MODELS[0],
+      provider: null,
+      selectedModel: null,
       prompt: ''
     };
 
-    const newModules = [...modules];
-    newModules.splice(index, 0, newModule);
-    
-    // Renumber modules
-    newModules.forEach((module, i) => {
-      module.title = `Agent ${i + 1}`;
-    });
-
-    setModules(newModules);
-  };
-
-  const deleteModule = (moduleId: string) => {
-    if (modules.length <= 1) return;
-
-    const newModules = modules.filter(m => m.id !== moduleId);
-    newModules.forEach((module, i) => {
-      module.title = `Agent ${i + 1}`;
-    });
-
-    setModules(newModules);
+    setModules(prev => [
+      ...prev.slice(0, index + 1),
+      newModule,
+      ...prev.slice(index + 1)
+    ]);
   };
 
   const updateModule = (moduleId: string, updates: Partial<WorkflowModuleData>) => {
-    setModules(modules.map(module => 
-      module.id === moduleId ? { ...module, ...updates } : module
+    console.log('Updating module:', moduleId, updates); // Debug log
+    setModules(prev => prev.map(module => 
+      module.id === moduleId
+        ? { ...module, ...updates }
+        : module
     ));
+  };
+
+  const deleteModule = (moduleId: string) => {
+    setModules(prev => {
+      const newModules = prev.filter(m => m.id !== moduleId);
+      // Renumber modules
+      return newModules.map((module, index) => ({
+        ...module,
+        title: `Agent ${index + 1}`
+      }));
+    });
   };
 
   const handleRetryFromFailed = () => {

@@ -17,7 +17,6 @@ interface WorkflowState {
   error: string | null;
   failedAgentIndex: number;
   agentStatus: Record<string, AgentStatus>;
-  // Actions
   startWorkflow: (modules: WorkflowModuleData[], startFromIndex?: number) => Promise<void>;
   stopWorkflow: () => void;
   retryFromFailed: (modules: WorkflowModuleData[]) => Promise<void>;
@@ -25,53 +24,46 @@ interface WorkflowState {
 }
 
 const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 2000; // Base delay for exponential backoff
+const RETRY_DELAY_MS = 2000;
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-// Helper to determine which API route to use based on model
-function getApiRoute(model: string): string {
-  if (model.startsWith('claude-')) {
-    return '/api/claude';
-  }
-  if (model.startsWith('gpt-')) {
-    return '/api/openai';
-  }
-  throw new Error(`Unsupported model: ${model}`);
-}
 
 async function executeAgent(
   module: WorkflowModuleData,
   previousOutput: string | null,
   retryCount: number = 0
 ): Promise<{ response: string; usage: { input_tokens: number; output_tokens: number } }> {
-  const apiKey = module.selectedModel.startsWith('claude-')
+  if (!module.provider || !module.selectedModel) {
+    throw new Error('Provider and model must be selected');
+  }
+
+  const apiKey = module.provider === 'anthropic'
     ? sessionStorage.getItem('anthropic_api_key')
     : sessionStorage.getItem('openai_api_key');
 
   if (!apiKey) {
-    throw new Error(`API key not found for ${module.selectedModel}`);
+    throw new Error(`API key not found for ${module.provider}`);
   }
 
   try {
-    const apiRoute = getApiRoute(module.selectedModel);
-    console.log(`Executing agent with model ${module.selectedModel} via ${apiRoute}`);
+    const endpoint = module.provider === 'anthropic' ? '/api/claude' : '/api/openai';
+    console.log(`Executing agent with model ${module.selectedModel} via ${endpoint}`);
 
-    const response = await fetch(apiRoute, {
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        prompt: previousOutput 
+        prompt: previousOutput
           ? `CONTENT TO PROCESS: ${previousOutput}\n\nYOUR ROLE: ${module.prompt}`
           : `USER INPUT: ${module.prompt}\n\nYOUR ROLE: ${module.prompt}`,
         apiKey,
-        model: module.selectedModel,
+        model: module.selectedModel
       }),
     });
 
     if (!response.ok) {
       const error = await response.json();
-      
+
       // Handle rate limits with exponential backoff
       if (response.status === 429 && retryCount < MAX_RETRIES) {
         const delay = RETRY_DELAY_MS * Math.pow(2, retryCount);
@@ -111,6 +103,16 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   startWorkflow: async (modules: WorkflowModuleData[], startFromIndex = 0) => {
     const store = get();
     if (store.isRunning) return;
+
+    // Validate all modules have provider and model selected
+    const invalidModule = modules.find(m => !m.provider || !m.selectedModel);
+    if (invalidModule) {
+      set({
+        error: `${invalidModule.title}: Provider and model must be selected`,
+        failedAgentIndex: modules.indexOf(invalidModule)
+      });
+      return;
+    }
 
     // Keep existing results if retrying from a failed agent
     const existingResults = startFromIndex > 0 ? store.results.slice(0, startFromIndex) : [];
@@ -155,6 +157,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             [module.id]: {
               ...state.agentStatus[module.id],
               isExecuting: true,
+              isComplete: false,
               error: null
             }
           }
@@ -182,7 +185,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
               ...state.agentStatus[module.id],
               isExecuting: false,
               isComplete: true,
-              executionTime
+              executionTime,
+              error: null
             }
           }
         }));
@@ -200,6 +204,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             [module.id]: {
               ...state.agentStatus[module.id],
               isExecuting: false,
+              isComplete: false,
               error: errorMessage,
               retryCount: (state.agentStatus[module.id].retryCount || 0) + 1
             }

@@ -1,33 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import get from 'lodash.get';
+import { getProvider } from '@/lib/providers';
+import type { StoredProvider } from '@/lib/providers';
 
-export interface ProviderConfig {
-  endpoint: string;
-  method?: 'GET' | 'POST' | 'PUT';
-  auth: {
-    type: 'bearer' | 'query' | 'header';
-    key: string;
-  };
-  headers?: Record<string, string>;
-  responsePath: string;
-  requestTemplate: Record<string, any> | {
-    body?: Record<string, any>;
-    query?: Record<string, string>;
-  };
-}
-
-interface RequestBody {
+export interface RequestBody {
   prompt: string;
   apiKey: string;
   model: string;
-  providerConfig: ProviderConfig;
+  providerId: string;
 }
 
 /**
  * Replace template variables in a string or object
- * @param template The template string or object
- * @param variables The variables to replace
- * @returns The template with variables replaced
  */
 function replaceTemplateVars(template: any, variables: Record<string, string>): any {
   if (typeof template === 'string') {
@@ -57,7 +41,7 @@ function replaceTemplateVars(template: any, variables: Record<string, string>): 
 function buildRequestUrl(
   baseUrl: string, 
   queryParams: Record<string, string> = {},
-  auth: ProviderConfig['auth'],
+  auth: StoredProvider['auth'],
   apiKey: string
 ): string {
   const url = new URL(baseUrl);
@@ -79,21 +63,19 @@ function buildRequestUrl(
  * Build request headers, handling auth and custom headers
  */
 function buildRequestHeaders(
-  providerConfig: ProviderConfig,
+  provider: StoredProvider,
   apiKey: string
 ): Record<string, string> {
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...providerConfig.headers
+    'Content-Type': 'application/json'
   };
 
   // Add authentication header based on auth type
-  if (providerConfig.auth.type === 'bearer') {
-    headers[providerConfig.auth.key || 'Authorization'] = `Bearer ${apiKey}`;
-  } else if (providerConfig.auth.type === 'header') {
-    headers[providerConfig.auth.key] = apiKey;
+  if (provider.auth.type === 'bearer') {
+    headers[provider.auth.key || 'Authorization'] = `Bearer ${apiKey}`;
+  } else if (provider.auth.type === 'header') {
+    headers[provider.auth.key] = apiKey;
   }
-  // Note: 'query' type is handled in URL building
 
   return headers;
 }
@@ -102,17 +84,19 @@ export async function POST(request: NextRequest) {
   console.log('Received custom LLM provider request');
   try {
     const body: RequestBody = await request.json();
-    const { prompt, apiKey, model, providerConfig } = body;
+    const { prompt, apiKey, model, providerId } = body;
 
     // Validate required fields
     if (!prompt) throw new Error('Prompt is required');
     if (!apiKey) throw new Error('API key is required');
     if (!model) throw new Error('Model is required');
-    if (!providerConfig) throw new Error('Provider configuration is required');
-    if (!providerConfig.endpoint) throw new Error('Provider endpoint is required');
-    if (!providerConfig.auth) throw new Error('Provider authentication is required');
-    if (!providerConfig.responsePath) throw new Error('Response path is required');
-    if (!providerConfig.requestTemplate) throw new Error('Request template is required');
+    if (!providerId) throw new Error('Provider ID is required');
+
+    // Load provider config
+    const provider = await getProvider(providerId);
+    if (!provider) {
+      throw new Error('Provider configuration not found');
+    }
 
     // Variables available for template replacement
     const templateVars = {
@@ -122,35 +106,34 @@ export async function POST(request: NextRequest) {
     };
 
     // Replace variables in endpoint URL
-    const baseUrl = replaceTemplateVars(providerConfig.endpoint, templateVars);
+    const baseUrl = replaceTemplateVars(provider.endpoint, templateVars);
 
     // Replace variables in query parameters and build URL
-    const queryParams = 'query' in providerConfig.requestTemplate && providerConfig.requestTemplate.query
-      ? replaceTemplateVars(providerConfig.requestTemplate.query, templateVars)
+    const queryParams = 'query' in provider.requestTemplate && provider.requestTemplate.query
+      ? replaceTemplateVars(provider.requestTemplate.query, templateVars)
       : {};
 
-    const url = buildRequestUrl(baseUrl, queryParams, providerConfig.auth, apiKey);
+    const url = buildRequestUrl(baseUrl, queryParams, provider.auth, apiKey);
 
     // Build headers with proper authentication
-    const headers = buildRequestHeaders(providerConfig, apiKey);
+    const headers = buildRequestHeaders(provider, apiKey);
 
     // Build request body - handle both direct template and nested body formats
-    const requestBody = 'body' in providerConfig.requestTemplate
-      ? replaceTemplateVars(providerConfig.requestTemplate.body, templateVars)
-      : replaceTemplateVars(providerConfig.requestTemplate, templateVars);
+    const requestBody = 'body' in provider.requestTemplate
+      ? replaceTemplateVars(provider.requestTemplate.body, templateVars)
+      : replaceTemplateVars(provider.requestTemplate, templateVars);
 
     // Log request details (with sensitive data redacted)
     console.log('Making request to:', url.replace(apiKey, '[REDACTED]'));
     console.log('With headers:', { 
       ...headers, 
       Authorization: headers.Authorization ? '[REDACTED]' : undefined,
-      [providerConfig.auth.key]: '[REDACTED]'
+      [provider.auth.key]: '[REDACTED]'
     });
     console.log('With body:', requestBody);
 
-    // Make request to provider
     const response = await fetch(url, {
-      method: providerConfig.method || 'POST',
+      method: 'POST',
       headers,
       body: JSON.stringify(requestBody)
     });
@@ -161,8 +144,8 @@ export async function POST(request: NextRequest) {
 
       // Improved error message that includes the provider's error details
       const errorMessage = errorData?.error?.message || 
-                         errorData?.message || 
-                         `Provider API error: ${response.status} ${response.statusText}`;
+                          errorData?.message || 
+                          `Provider API error: ${response.status} ${response.statusText}`;
       throw new Error(errorMessage);
     }
 
@@ -170,9 +153,9 @@ export async function POST(request: NextRequest) {
     console.log('Provider API response:', responseData);
 
     // Extract response using the specified path
-    const result = get(responseData, providerConfig.responsePath);
+    const result = get(responseData, provider.responsePath);
     if (result === undefined) {
-      throw new Error(`Could not find response at path: ${providerConfig.responsePath}`);
+      throw new Error(`Could not find response at path: ${provider.responsePath}`);
     }
 
     return NextResponse.json({ response: result });
@@ -184,26 +167,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-// Example Google AI config for testing:
-/*
-const googleConfig: ProviderConfig = {
-  endpoint: 'https://generativelanguage.googleapis.com/v1/models/{{model}}:generateContent',
-  method: 'POST',
-  auth: {
-    type: 'query',
-    key: 'key'
-  },
-  requestTemplate: {
-    body: {
-      contents: [{
-        parts: [{
-          text: "{{prompt}}"
-        }]
-      }]
-    }
-  },
-  responsePath: 'candidates[0].content.parts[0].text'
-};
-*/ 
+} 

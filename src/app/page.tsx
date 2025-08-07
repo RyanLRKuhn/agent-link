@@ -10,6 +10,11 @@ import ProgressBar from './components/ProgressBar';
 import StatusIndicator from './components/StatusIndicator';
 import { WorkflowModuleData } from './types/workflow';
 import { useWorkflowStore } from './store/workflowStore';
+import SaveWorkflowModal from './components/SaveWorkflowModal';
+import SuccessNotification from './components/SuccessNotification';
+import LoadWorkflowModal from './components/LoadWorkflowModal';
+import { saveWorkflow, getWorkflow } from '@/lib/workflows';
+import type { Provider } from './types/workflow';
 
 export default function Home() {
   const [modules, setModules] = useState<WorkflowModuleData[]>([{
@@ -19,6 +24,10 @@ export default function Home() {
     selectedModel: null,
     prompt: ''
   }]);
+
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [isLoadModalOpen, setIsLoadModalOpen] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const { 
     isRunning, 
@@ -115,6 +124,40 @@ export default function Home() {
     URL.revokeObjectURL(url);
   }, [modules, results]);
 
+  const handleSaveWorkflow = async (name: string) => {
+    try {
+      const workflow = await saveWorkflow(modules, name);
+      setSuccessMessage(`Workflow saved successfully! ID: ${workflow.id}`);
+      setTimeout(() => setSuccessMessage(null), 5000); // Auto-hide after 5s
+    } catch (error) {
+      console.error('Failed to save workflow:', error);
+      // You might want to show an error notification here
+    }
+  };
+
+  const handleLoadWorkflow = async (workflowId: string) => {
+    try {
+      const workflow = await getWorkflow(workflowId);
+      if (!workflow) {
+        throw new Error('Workflow not found');
+      }
+
+      // Convert stored modules to WorkflowModuleData format
+      const convertedModules = workflow.modules.map(module => ({
+        ...module,
+        provider: module.provider as Provider | null
+      }));
+
+      // Update modules with loaded workflow
+      setModules(convertedModules);
+      setSuccessMessage('Workflow loaded successfully!');
+      setTimeout(() => setSuccessMessage(null), 5000);
+    } catch (error) {
+      console.error('Failed to load workflow:', error);
+      throw error; // Re-throw to be handled by the modal
+    }
+  };
+
   // Memoize module rendering
   const renderModules = useMemo(() => {
     return modules.map((module, index) => {
@@ -196,7 +239,7 @@ export default function Home() {
             
             {renderModules}
 
-            <div className="w-full flex justify-center mb-16">
+            <div className="w-full flex justify-center gap-4 mb-16">
               {isRunning ? (
                 <button
                   onClick={stopWorkflow}
@@ -209,18 +252,45 @@ export default function Home() {
                   Stop Workflow
                 </button>
               ) : (
-                <button
-                  onClick={() => startWorkflow(modules)}
-                  className="px-8 py-3 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white rounded-lg 
-                    font-medium transition-all duration-200 hover:shadow-[var(--glow)] flex items-center gap-3"
-                  disabled={isRunning || modules.some(m => !m.prompt)}
-                >
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  Run Workflow
-                </button>
+                <>
+                  <button
+                    onClick={() => startWorkflow(modules)}
+                    className="px-8 py-3 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white rounded-lg 
+                      font-medium transition-all duration-200 hover:shadow-[var(--glow)] flex items-center gap-3"
+                    disabled={isRunning || modules.some(m => !m.prompt)}
+                  >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Run Workflow
+                  </button>
+
+                  <button
+                    onClick={() => setIsSaveModalOpen(true)}
+                    className="px-8 py-3 bg-surface-2 hover:bg-surface-3 rounded-lg 
+                      font-medium transition-all duration-200 border border-surface-2
+                      hover:border-surface-3 flex items-center gap-3"
+                    disabled={modules.some(m => !m.prompt)}
+                  >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                    </svg>
+                    Save Workflow
+                  </button>
+
+                  <button
+                    onClick={() => setIsLoadModalOpen(true)}
+                    className="px-8 py-3 bg-surface-2 hover:bg-surface-3 rounded-lg 
+                      font-medium transition-all duration-200 border border-surface-2
+                      hover:border-surface-3 flex items-center gap-3"
+                  >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    Load Workflow
+                  </button>
+                </>
               )}
             </div>
 
@@ -248,6 +318,25 @@ export default function Home() {
           </div>
         </div>
       </main>
+
+      <SaveWorkflowModal
+        isOpen={isSaveModalOpen}
+        onClose={() => setIsSaveModalOpen(false)}
+        onSave={handleSaveWorkflow}
+      />
+
+      <LoadWorkflowModal
+        isOpen={isLoadModalOpen}
+        onClose={() => setIsLoadModalOpen(false)}
+        onLoad={handleLoadWorkflow}
+      />
+
+      {successMessage && (
+        <SuccessNotification
+          message={successMessage}
+          onClose={() => setSuccessMessage(null)}
+        />
+      )}
     </div>
   );
 }

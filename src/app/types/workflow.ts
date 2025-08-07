@@ -1,4 +1,16 @@
-export type Provider = 'openai' | 'anthropic' | 'google';
+// Built-in provider types
+export type BuiltInProvider = 'openai' | 'anthropic' | 'google';
+
+// Custom provider interface
+export interface CustomProvider {
+  id: string;
+  name: string;
+  type: 'custom';
+  models?: string[];
+}
+
+// Combined provider type
+export type Provider = BuiltInProvider | CustomProvider;
 
 export interface WorkflowModuleData {
   id: string;
@@ -21,7 +33,7 @@ export interface WorkflowResult {
 }
 
 // Provider display names
-export const PROVIDER_NAMES: Record<Provider, string> = {
+export const PROVIDER_NAMES: Record<BuiltInProvider, string> = {
   openai: 'OpenAI',
   anthropic: 'Anthropic',
   google: 'Google AI'
@@ -39,11 +51,11 @@ export const MODEL_IDS = {
 } as const;
 
 // Available models for selection (fallback list)
-export const FALLBACK_MODELS: Record<Provider, string[]> = {
+export const FALLBACK_MODELS: Record<BuiltInProvider, string[]> = {
   openai: [MODEL_IDS.GPT4, MODEL_IDS.GPT4_MINI],
-  anthropic: [MODEL_IDS.CLAUDE_SONNET],
-  google: [MODEL_IDS.GEMINI_PRO, MODEL_IDS.GEMINI_FLASH],
-};
+  anthropic: [MODEL_IDS.CLAUDE_SONNET, MODEL_IDS.CLAUDE_HAIKU, MODEL_IDS.CLAUDE_OPUS],
+  google: [MODEL_IDS.GEMINI_PRO, MODEL_IDS.GEMINI_FLASH]
+} as const;
 
 // Display name patterns for dynamic model matching
 const MODEL_DISPLAY_PATTERNS: Array<[RegExp, (match: RegExpMatchArray) => string]> = [
@@ -106,9 +118,31 @@ export function getModelDisplayName(modelId: string): string {
 /**
  * Get the provider for a given model ID
  */
-export function getProviderFromModel(modelId: string): Provider | null {
+export function getProviderFromModel(modelId: string): BuiltInProvider | null {
   if (modelId.startsWith('gpt-')) return 'openai';
   if (modelId.startsWith('claude-')) return 'anthropic';
   if (modelId.startsWith('gemini-')) return 'google';
   return null;
+}
+
+/**
+ * Check if a provider is a built-in provider
+ */
+export function isBuiltInProvider(provider: Provider): provider is BuiltInProvider {
+  return typeof provider === 'string';
+}
+
+/**
+ * Check if a provider is a custom provider
+ */
+export function isCustomProvider(provider: Provider): provider is CustomProvider {
+  return typeof provider === 'object' && provider.type === 'custom';
+}
+
+/**
+ * Get the provider ID (either the built-in provider string or custom provider ID)
+ */
+export function getProviderId(provider: Provider | null): string | null {
+  if (!provider) return null;
+  return isBuiltInProvider(provider) ? provider : provider.id;
 } 

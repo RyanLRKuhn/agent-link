@@ -1,79 +1,58 @@
 {
   "version": "1.0",
   "design_guidelines": {
-    "responsive_design": {
-      "principles": [
-        "Always use relative units (rem, em, %) over fixed units (px)",
-        "Avoid absolute positioning - it breaks responsive layouts",
-        "Design should work cleanly from mobile to 4k displays",
-        "Use Tailwind's responsive prefixes (sm:, md:, lg:, xl:, 2xl:) for breakpoint-specific styles",
-        "Test layouts at various viewport sizes"
-      ]
-    },
-    "styling": {
-      "preferred": [
-        "Use Tailwind CSS for consistent styling",
-        "Prefer flex and grid layouts over absolute positioning",
-        "Use relative positioning only when necessary",
-        "Maintain proper spacing with Tailwind's spacing scale"
+    "code_preservation": {
+      "critical_rules": [
+        "NEVER delete working functionality to implement new features",
+        "NEVER remove existing code unless explicitly requested",
+        "NEVER replace working implementations with placeholder code",
+        "NEVER comment out or disable existing features",
+        "ADD new functionality alongside existing code, don't replace it"
       ],
-      "avoid": [
-        "Fixed width/height values (except for max/min constraints)",
-        "Absolute positioning",
-        "Hard-coded pixel values",
-        "Direct CSS styles (use Tailwind utilities)"
+      "forbidden_patterns": [
+        "Deleting API routes or endpoints",
+        "Removing event handlers or onClick functions", 
+        "Commenting out working functionality",
+        "Replacing implementations with TODO comments",
+        "Removing state management or data flow logic",
+        "Deleting UI components that are currently working"
       ]
     },
-    "accessibility": {
-      "requirements": [
-        "Ensure proper keyboard navigation",
-        "Maintain ARIA attributes where needed",
-        "Use semantic HTML elements",
-        "Ensure sufficient color contrast"
+    "implementation_approach": {
+      "required": [
+        "Always build incrementally - add to existing code",
+        "Preserve all working functionality while adding new features",
+        "If code needs refactoring, do it without breaking existing features",
+        "Test that existing functionality still works after changes",
+        "When in doubt, add new code rather than modifying existing code"
       ]
     },
-    "animations": {
-      "principles": [
-        "Keep animations subtle and purposeful",
-        "Use transition utilities from Tailwind when possible",
-        "Custom animations should be defined in globals.css",
-        "Consider reduced-motion preferences"
-      ]
-    }
-  },
-  "code_organization": {
-    "component_structure": {
-      "rules": [
-        "Keep components focused and single-purpose",
-        "Extract reusable logic into custom hooks",
-        "Maintain clear prop interfaces",
-        "Document complex component behavior"
-      ]
-    },
-    "naming_conventions": {
-      "rules": [
-        "Use descriptive, semantic names",
-        "Follow React component naming conventions",
-        "Maintain consistent naming patterns across the project"
+    "styling_constraints": {
+      "strict_rules": [
+        "NEVER modify existing CSS/styling unless explicitly requested",
+        "Only add styling that is directly necessary for new functionality",
+        "Preserve all existing color schemes, spacing, and visual hierarchy",
+        "Do not refactor or 'improve' existing styles without explicit instruction",
+        "When adding new components, match existing design patterns exactly"
       ]
     }
   },
   "rules": {
-    "design": {
-      "responsive": {
-        "rule": "Avoid absolute positioning for layout. Use flexbox and grid for responsive designs.",
+    "code_safety": {
+      "preservation": {
+        "rule": "CRITICAL: Never delete, comment out, or disable working functionality. Always add new features alongside existing code.",
+        "severity": "error"
+      },
+      "incremental_development": {
+        "rule": "Build features incrementally. If existing code works, keep it working while adding new functionality.",
         "severity": "error"
       }
     },
-    "api": {
-      "claude_model": {
-        "rule": "Always use model: 'claude-3-5-sonnet-20241022' for Claude API calls. This is the required model version.",
-        "severity": "error"
+    "debugging": {
+      "approach": {
+        "rule": "When fixing bugs, identify the minimal change needed. Don't rewrite working code.",
+        "severity": "warning"
       }
     }
-  },
-  "documentation": {
-    "description": "Configuration rules for the AgentLink project",
-    "lastUpdated": "2024-03-20"
   }
-} 
+}

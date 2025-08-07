@@ -182,8 +182,8 @@ export default function SettingsSidebar() {
    */
   const testConnection = async (provider: 'anthropic' | 'openai' | 'google') => {
     const key = provider === 'anthropic' ? anthropicKey :
-                provider === 'openai' ? openaiKey :
-                googleKey;
+      provider === 'openai' ? openaiKey :
+        googleKey;
 
     if (!key) {
       setKeyStatus(prev => ({
@@ -207,12 +207,12 @@ export default function SettingsSidebar() {
 
     try {
       const endpoint = provider === 'anthropic' ? '/api/claude' :
-                      provider === 'openai' ? '/api/openai' :
-                      '/api/gemini';
-      
-      const testModel = provider === 'anthropic' ? 'claude-3-sonnet-20240229' :
-                       provider === 'openai' ? 'gpt-3.5-turbo' :
-                       'gemini-1.5-pro';
+        provider === 'openai' ? '/api/openai' :
+          '/api/gemini';
+
+      const testModel = provider === 'anthropic' ? 'claude-3-5-sonnet-20241022' :
+        provider === 'openai' ? 'gpt-3.5-turbo' :
+          'gemini-1.5-pro';
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -359,7 +359,7 @@ export default function SettingsSidebar() {
       {isOpen && (
         <div className="fixed inset-0 z-50">
           {/* Backdrop */}
-          <div 
+          <div
             className="absolute inset-0 bg-surface-0/80 backdrop-blur-sm"
             onClick={() => setIsOpen(false)}
           />
@@ -397,13 +397,12 @@ export default function SettingsSidebar() {
               <div className="p-6 space-y-8">
                 {/* Refresh Status Message */}
                 {refreshStatus && (
-                  <div className={`text-sm px-4 py-3 rounded-lg animate-fade-in ${
-                    refreshStatus.type === 'success' 
+                  <div className={`text-sm px-4 py-3 rounded-lg animate-fade-in ${refreshStatus.type === 'success'
                       ? 'bg-green-500/10 text-green-400 border border-green-500/20'
                       : refreshStatus.type === 'warning'
-                      ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
-                      : 'bg-red-500/10 text-red-400 border border-red-500/20'
-                  }`}>
+                        ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
+                        : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                    }`}>
                     {refreshStatus.message}
                   </div>
                 )}

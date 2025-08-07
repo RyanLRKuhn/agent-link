@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { StoredWorkflow } from '@/lib/workflows';
+import type { StoredWorkflow } from '@/lib/workflows';
 
 interface LoadWorkflowModalProps {
   isOpen: boolean;
@@ -12,6 +12,7 @@ interface WorkflowListItem {
   name: string;
   createdAt: string;
   updatedAt: string;
+  description?: string;
 }
 
 export default function LoadWorkflowModal({
@@ -34,9 +35,10 @@ export default function LoadWorkflowModal({
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/workflows');
+      const response = await fetch('/api/workflows/list');
       if (!response.ok) {
-        throw new Error('Failed to fetch workflows');
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch workflows');
       }
       const data = await response.json();
       setWorkflows(data);
@@ -122,6 +124,9 @@ export default function LoadWorkflowModal({
                       {workflow.updatedAt !== workflow.createdAt && 
                         ` • Updated ${new Date(workflow.updatedAt).toLocaleDateString()}`
                       }
+                      {workflow.description && (
+                        <span className="block mt-1">{workflow.description}</span>
+                      )}
                     </p>
                   </div>
                   <button

@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getWorkflow, saveWorkflow, deleteWorkflow, updateWorkflowMetadata } from '@/lib/workflows';
+import { getWorkflow } from '@/lib/workflows';
+import { debug } from '@/lib/workflows';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    // Log environment state in development
+    if (process.env.NODE_ENV === 'development') {
+      debug();
+    }
+
     const workflow = await getWorkflow(params.id);
     if (!workflow) {
       return NextResponse.json(
@@ -13,11 +19,12 @@ export async function GET(
         { status: 404 }
       );
     }
+
     return NextResponse.json(workflow);
   } catch (error) {
     console.error('Error fetching workflow:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch workflow' },
+      { error: error instanceof Error ? error.message : 'Failed to fetch workflow' },
       { status: 500 }
     );
   }

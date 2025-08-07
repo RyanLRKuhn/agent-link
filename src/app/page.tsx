@@ -13,7 +13,6 @@ import { useWorkflowStore } from './store/workflowStore';
 import SaveWorkflowModal from './components/SaveWorkflowModal';
 import SuccessNotification from './components/SuccessNotification';
 import LoadWorkflowModal from './components/LoadWorkflowModal';
-import { saveWorkflow, getWorkflow } from '@/lib/workflows';
 import type { Provider } from './types/workflow';
 
 export default function Home() {
@@ -126,30 +125,37 @@ export default function Home() {
 
   const handleSaveWorkflow = async (name: string) => {
     try {
-      const workflow = await saveWorkflow(modules, name);
+      const response = await fetch('/api/workflows/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modules, name })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to save workflow');
+      }
+
+      const workflow = await response.json();
       setSuccessMessage(`Workflow saved successfully! ID: ${workflow.id}`);
-      setTimeout(() => setSuccessMessage(null), 5000); // Auto-hide after 5s
+      setTimeout(() => setSuccessMessage(null), 5000);
     } catch (error) {
       console.error('Failed to save workflow:', error);
-      // You might want to show an error notification here
+      setSuccessMessage(`Error: ${error instanceof Error ? error.message : 'Failed to save workflow'}`);
+      setTimeout(() => setSuccessMessage(null), 5000);
     }
   };
 
   const handleLoadWorkflow = async (workflowId: string) => {
     try {
-      const workflow = await getWorkflow(workflowId);
-      if (!workflow) {
-        throw new Error('Workflow not found');
+      const response = await fetch(`/api/workflows/${workflowId}`);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to load workflow');
       }
 
-      // Convert stored modules to WorkflowModuleData format
-      const convertedModules = workflow.modules.map(module => ({
-        ...module,
-        provider: module.provider as Provider | null
-      }));
-
-      // Update modules with loaded workflow
-      setModules(convertedModules);
+      const workflow = await response.json();
+      setModules(workflow.modules);
       setSuccessMessage('Workflow loaded successfully!');
       setTimeout(() => setSuccessMessage(null), 5000);
     } catch (error) {

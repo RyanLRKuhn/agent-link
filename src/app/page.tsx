@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import AddModuleButton from './components/AddModuleButton';
 import WorkflowModule from './components/WorkflowModule';
-import SettingsDropdown from './components/SettingsDropdown';
 import FlowIndicator from './components/FlowIndicator';
 import WorkflowOutput from './components/WorkflowOutput';
 import ErrorDisplay from './components/ErrorDisplay';
@@ -117,19 +116,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[var(--surface-0)] flex flex-col">
-      {/* Header */}
-      <header className="sticky top-0 z-50 h-16 border-b border-[var(--border)] bg-[var(--surface-1)] backdrop-blur-sm backdrop-saturate-150">
-        <div className="h-full max-w-7xl mx-auto px-6 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-[var(--primary)] rounded-lg flex items-center justify-center text-white font-bold shadow-lg shadow-blue-500/20">
-              A
-            </div>
-            <h1 className="text-xl font-semibold text-[var(--text-primary)]">AgentLink</h1>
-          </div>
-          <SettingsDropdown />
-        </div>
-      </header>
-
       {/* Main Content */}
       <main className="flex-1 p-6 overflow-auto">
         <div className="max-w-2xl mx-auto">

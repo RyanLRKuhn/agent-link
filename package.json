@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "cleanup:workflows": "tsx scripts/cleanup-workflow-list.ts",
     "test:kv": "tsx scripts/test-kv.ts",
     "dev": "next dev",
     "build": "next build",

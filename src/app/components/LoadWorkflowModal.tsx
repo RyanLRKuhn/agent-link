@@ -1,41 +1,50 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { StoredWorkflow } from '@/lib/workflows';
 
 interface LoadWorkflowModalProps {
   isOpen: boolean;
   onClose: () => void;
   onLoad: (workflowId: string) => Promise<void>;
+  onWorkflowSaved?: () => void; // New prop for refresh trigger
 }
 
-interface WorkflowListItem {
-  id: string;
-  name: string;
-  createdAt: string;
-  updatedAt: string;
-  description?: string;
+interface WorkflowListItem extends Omit<StoredWorkflow, 'modules'> {
+  modules?: Array<{ title: string }>;
 }
 
 export default function LoadWorkflowModal({
   isOpen,
   onClose,
-  onLoad
+  onLoad,
+  onWorkflowSaved
 }: LoadWorkflowModalProps) {
   const [workflows, setWorkflows] = useState<WorkflowListItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingWorkflowId, setLoadingWorkflowId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0); // For manual refresh
 
+  // Fetch workflows when opened or when refreshKey changes
   useEffect(() => {
     if (isOpen) {
       fetchWorkflows();
     }
-  }, [isOpen]);
+  }, [isOpen, refreshKey]);
 
-  const fetchWorkflows = async () => {
+  // Listen for workflow saved events
+  useEffect(() => {
+    if (onWorkflowSaved) {
+      onWorkflowSaved();
+    }
+  }, [onWorkflowSaved]);
+
+  const fetchWorkflows = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/workflows/list');
+      // Add cache-busting query parameter
+      const response = await fetch(`/api/workflows/list?t=${Date.now()}`);
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Failed to fetch workflows');
@@ -48,7 +57,20 @@ export default function LoadWorkflowModal({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
+
+  // Function to trigger manual refresh
+  const refreshList = useCallback(() => {
+    setRefreshKey(key => key + 1);
+  }, []);
+
+  // Clear copied state after 2 seconds
+  useEffect(() => {
+    if (copiedId) {
+      const timer = setTimeout(() => setCopiedId(null), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [copiedId]);
 
   const handleLoad = async (workflowId: string) => {
     setLoadingWorkflowId(workflowId);
@@ -63,6 +85,26 @@ export default function LoadWorkflowModal({
     }
   };
 
+  const handleCopyId = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent triggering load
+    try {
+      await navigator.clipboard.writeText(id);
+      setCopiedId(id);
+    } catch (error) {
+      console.error('Failed to copy ID:', error);
+    }
+  };
+
+  const formatAgentTitles = (workflow: WorkflowListItem) => {
+    if (!workflow.modules || workflow.modules.length === 0) return null;
+    
+    const titles = workflow.modules.map(m => m.title);
+    if (titles.length <= 3) {
+      return titles.join(', ');
+    }
+    return `${titles.slice(0, 3).join(', ')} + ${titles.length - 3} more`;
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -74,17 +116,41 @@ export default function LoadWorkflowModal({
       />
 
       {/* Modal */}
-      <div className="relative bg-surface-1 rounded-lg shadow-lg p-6 max-w-2xl w-full mx-4">
+      <div className="relative bg-surface-1 rounded-lg shadow-lg p-6 max-w-3xl w-full mx-4">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-semibold">Load Workflow</h2>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-surface-2 rounded-lg transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Add refresh button */}
+            <button
+              onClick={refreshList}
+              disabled={isLoading}
+              className="p-2 hover:bg-surface-2 rounded-lg transition-colors
+                text-text-secondary hover:text-primary disabled:opacity-50"
+              title="Refresh workflow list"
+            >
+              <svg 
+                className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
+            </button>
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-surface-2 rounded-lg transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -115,27 +181,66 @@ export default function LoadWorkflowModal({
                 <div
                   key={workflow.id}
                   className="flex items-center justify-between p-4 rounded-lg
-                    bg-surface-2 border border-surface-2 group"
+                    bg-surface-2 border border-surface-2 group hover:border-surface-3"
                 >
-                  <div>
-                    <h3 className="font-medium">{workflow.name}</h3>
-                    <p className="text-sm text-text-secondary">
-                      Created {new Date(workflow.createdAt).toLocaleDateString()}
-                      {workflow.updatedAt !== workflow.createdAt && 
-                        ` • Updated ${new Date(workflow.updatedAt).toLocaleDateString()}`
-                      }
+                  <div className="flex-1 min-w-0">
+                    {/* Primary Info */}
+                    <div className="flex items-start justify-between mb-1">
+                      <h3 className="font-medium truncate">{workflow.name}</h3>
+                      <div className="flex items-center gap-2 ml-4">
+                        <code className="px-2 py-1 text-xs bg-surface-3 rounded font-mono">
+                          {workflow.id}
+                        </code>
+                        <button
+                          onClick={(e) => handleCopyId(workflow.id, e)}
+                          className={`p-1.5 rounded transition-colors ${
+                            copiedId === workflow.id
+                              ? 'bg-success/10 text-success'
+                              : 'hover:bg-surface-3 text-text-secondary'
+                          }`}
+                          title="Copy ID"
+                        >
+                          {copiedId === workflow.id ? (
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                          ) : (
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Secondary Info */}
+                    <div className="flex flex-col gap-1">
+                      <p className="text-sm text-text-secondary">
+                        Created {new Date(workflow.createdAt).toLocaleDateString()}
+                        {workflow.updatedAt !== workflow.createdAt && 
+                          ` • Updated ${new Date(workflow.updatedAt).toLocaleDateString()}`
+                        }
+                      </p>
                       {workflow.description && (
-                        <span className="block mt-1">{workflow.description}</span>
+                        <p className="text-sm text-text-secondary">{workflow.description}</p>
                       )}
-                    </p>
+                      {formatAgentTitles(workflow) && (
+                        <p className="text-xs text-text-tertiary font-medium">
+                          {formatAgentTitles(workflow)}
+                        </p>
+                      )}
+                    </div>
                   </div>
+
+                  {/* Load Button */}
                   <button
                     onClick={() => handleLoad(workflow.id)}
                     disabled={loadingWorkflowId === workflow.id}
-                    className="px-4 py-2 text-sm font-medium rounded-lg
+                    className="ml-4 px-4 py-2 text-sm font-medium rounded-lg
                       bg-primary hover:bg-primary-hover text-white
                       transition-colors disabled:opacity-50 disabled:cursor-not-allowed
-                      opacity-0 group-hover:opacity-100 flex items-center gap-2"
+                      opacity-0 group-hover:opacity-100 flex items-center gap-2
+                      whitespace-nowrap"
                   >
                     {loadingWorkflowId === workflow.id ? (
                       <>

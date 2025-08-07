@@ -26,6 +26,7 @@ export default function Home() {
 
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
   const [isLoadModalOpen, setIsLoadModalOpen] = useState(false);
+  const [shouldRefreshWorkflows, setShouldRefreshWorkflows] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const { 
@@ -139,12 +140,21 @@ export default function Home() {
       const workflow = await response.json();
       setSuccessMessage(`Workflow saved successfully! ID: ${workflow.id}`);
       setTimeout(() => setSuccessMessage(null), 5000);
+      
+      // Trigger workflow list refresh
+      setShouldRefreshWorkflows(true);
     } catch (error) {
       console.error('Failed to save workflow:', error);
       setSuccessMessage(`Error: ${error instanceof Error ? error.message : 'Failed to save workflow'}`);
       setTimeout(() => setSuccessMessage(null), 5000);
     }
   };
+
+  const handleWorkflowSaved = useCallback(() => {
+    if (shouldRefreshWorkflows) {
+      setShouldRefreshWorkflows(false);
+    }
+  }, [shouldRefreshWorkflows]);
 
   const handleLoadWorkflow = async (workflowId: string) => {
     try {
@@ -163,6 +173,14 @@ export default function Home() {
       throw error; // Re-throw to be handled by the modal
     }
   };
+
+  const handleUpdateTitle = useCallback((moduleId: string, title: string) => {
+    setModules(prev => prev.map(module => 
+      module.id === moduleId
+        ? { ...module, title }
+        : module
+    ));
+  }, []);
 
   // Memoize module rendering
   const renderModules = useMemo(() => {
@@ -201,6 +219,7 @@ export default function Home() {
               isComplete={status?.isComplete}
               executionError={status?.error}
               executionTime={status?.executionTime}
+              onUpdateTitle={(title) => handleUpdateTitle(module.id, title)}
             />
           </div>
 
@@ -223,7 +242,7 @@ export default function Home() {
         </div>
       );
     });
-  }, [modules, agentStatus, isRunning, currentAgentIndex, updateModule, deleteModule, createModule]);
+  }, [modules, agentStatus, isRunning, currentAgentIndex, updateModule, deleteModule, createModule, handleUpdateTitle]);
 
   return (
     <div className="min-h-screen bg-[var(--surface-0)] flex flex-col">
@@ -335,6 +354,7 @@ export default function Home() {
         isOpen={isLoadModalOpen}
         onClose={() => setIsLoadModalOpen(false)}
         onLoad={handleLoadWorkflow}
+        onWorkflowSaved={handleWorkflowSaved}
       />
 
       {successMessage && (

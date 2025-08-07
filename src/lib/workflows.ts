@@ -158,29 +158,9 @@ export async function saveWorkflow(
 
     console.log(`Saving workflow ${workflow.id}...`);
 
-    // Save to KV storage
+    // Save workflow directly - no list maintenance
     await kv.set(`workflow:${workflow.id}`, workflow);
     console.log(`Workflow ${workflow.id} saved successfully`);
-
-    // Update workflow list
-    const workflowList = await listWorkflows();
-    const workflowMeta = {
-      id: workflow.id,
-      name: workflow.name,
-      description: workflow.description,
-      createdAt: workflow.createdAt,
-      updatedAt: workflow.updatedAt
-    };
-
-    if (!workflowList.some(w => w.id === workflow.id)) {
-      await kv.set('workflow:list', [...workflowList, workflowMeta]);
-      console.log(`Added workflow ${workflow.id} to list`);
-    } else {
-      await kv.set('workflow:list', workflowList.map(w => 
-        w.id === workflow.id ? workflowMeta : w
-      ));
-      console.log(`Updated workflow ${workflow.id} in list`);
-    }
 
     return workflow;
   } catch (error) {
@@ -212,9 +192,47 @@ export async function getWorkflow(id: string): Promise<StoredWorkflow | null> {
 export async function listWorkflows(): Promise<Array<Omit<StoredWorkflow, 'modules'>>> {
   try {
     console.log('Fetching workflow list...');
-    const list = await kv.get<Array<Omit<StoredWorkflow, 'modules'>>>('workflow:list');
-    console.log(`Found ${list?.length || 0} workflows`);
-    return list || [];
+
+    // Get all workflow keys
+    const keys = await kv.keys('workflow:*');
+    console.log(`Found ${keys.length} workflow keys`);
+
+    // Filter out the old list key and extract IDs
+    const workflowIds = keys
+      .filter(key => key !== 'workflow:list')
+      .map(key => key.replace('workflow:', ''));
+
+    // Fetch all workflows in parallel
+    const workflows = await Promise.all(
+      workflowIds.map(async id => {
+        try {
+          const workflow = await getWorkflow(id);
+          if (!workflow) {
+            console.warn(`Missing workflow for ID: ${id}`);
+            return null;
+          }
+          return workflow;
+        } catch (error) {
+          console.warn(`Error fetching workflow ${id}:`, error);
+          return null;
+        }
+      })
+    );
+
+    // Filter out nulls and extract metadata
+    const workflowList = workflows
+      .filter((w): w is StoredWorkflow => w !== null)
+      .map(({ id, name, description, createdAt, updatedAt }) => ({
+        id,
+        name,
+        description,
+        createdAt,
+        updatedAt
+      }))
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+    console.log(`Returning ${workflowList.length} workflows`);
+    return workflowList;
   } catch (error) {
     console.error('Error fetching workflow list:', error);
     throw new Error(
@@ -229,15 +247,8 @@ export async function listWorkflows(): Promise<Array<Omit<StoredWorkflow, 'modul
 export async function deleteWorkflow(id: string): Promise<void> {
   try {
     console.log(`Deleting workflow ${id}...`);
-
-    // Delete the workflow
     await kv.del(`workflow:${id}`);
     console.log(`Workflow ${id} deleted`);
-
-    // Update workflow list
-    const workflowList = await listWorkflows();
-    await kv.set('workflow:list', workflowList.filter(w => w.id !== id));
-    console.log(`Removed workflow ${id} from list`);
   } catch (error) {
     console.error(`Error deleting workflow ${id}:`, error);
     throw new Error(
@@ -270,21 +281,6 @@ export async function updateWorkflowMetadata(
     await kv.set(`workflow:${id}`, updatedWorkflow);
     console.log(`Workflow ${id} updated successfully`);
 
-    // Update workflow list
-    const workflowList = await listWorkflows();
-    await kv.set('workflow:list', workflowList.map(w => 
-      w.id === id 
-        ? {
-            id: w.id,
-            name: updates.name || w.name,
-            description: updates.description !== undefined ? updates.description : w.description,
-            createdAt: w.createdAt,
-            updatedAt: updatedWorkflow.updatedAt
-          }
-        : w
-    ));
-    console.log(`Updated workflow ${id} in list`);
-
     return updatedWorkflow;
   } catch (error) {
     console.error(`Error updating workflow ${id} metadata:`, error);
@@ -292,7 +288,21 @@ export async function updateWorkflowMetadata(
       `Failed to update workflow metadata: ${error instanceof Error ? error.message : 'Unknown error'}`
     );
   }
-} 
+}
+
+/**
+ * One-time cleanup function to remove old workflow list
+ */
+export async function cleanupOldWorkflowList(): Promise<void> {
+  try {
+    console.log('Cleaning up old workflow list...');
+    await kv.del('workflow:list');
+    console.log('Old workflow list removed successfully');
+  } catch (error) {
+    console.error('Error cleaning up old workflow list:', error);
+    // Don't throw - this is a cleanup operation
+  }
+}
 
 // Export the debug function for external use
 export const debug = debugEnvironment; 

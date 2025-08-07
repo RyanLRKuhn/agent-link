@@ -5,6 +5,7 @@ import ModelSelect from './ModelSelect';
 import { getProviderEndpoint } from '../utils/providerEndpoints';
 import { getCustomProviders } from '../utils/customProviders';
 import { Provider, isBuiltInProvider, isCustomProvider, CustomProvider } from '../types/workflow';
+import EditableAgentName from './EditableAgentName';
 
 interface WorkflowModuleData {
   id: string;
@@ -24,6 +25,7 @@ interface WorkflowModuleProps {
   isComplete?: boolean;
   executionError?: string | null;
   executionTime?: number;
+  onUpdateTitle: (title: string) => void;
 }
 
 interface TestResponse {
@@ -58,7 +60,8 @@ const WorkflowModule = memo(function WorkflowModule({
   isExecuting = false,
   isComplete = false,
   executionError = null,
-  executionTime
+  executionTime,
+  onUpdateTitle
 }: WorkflowModuleProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -187,7 +190,11 @@ const WorkflowModule = memo(function WorkflowModule({
             }`}>
             {index + 1}
           </div>
-          <h3 className="font-medium">{module.title}</h3>
+          <EditableAgentName
+            value={module.title}
+            onChange={onUpdateTitle}
+            index={index}
+          />
         </div>
         {canDelete && (
           <button

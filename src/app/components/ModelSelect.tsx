@@ -1,22 +1,25 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { getCustomProviders } from '../utils/customProviders';
 import { 
   Provider, 
   BuiltInProvider, 
   CustomProvider, 
-  isBuiltInProvider,
+  isBuiltInProvider, 
   isCustomProvider,
-  getProviderId,
   PROVIDER_NAMES 
 } from '../types/workflow';
 
 interface ModelSelectProps {
-  selectedProvider: Provider | null;
-  selectedModel: string | null;
   onProviderChange: (provider: Provider | null) => void;
   onModelChange: (model: string | null) => void;
+  selectedProvider: Provider | null;
+  selectedModel: string | null;
+}
+
+interface AvailableModels {
+  [key: string]: string[];
 }
 
 // Built-in provider definitions
@@ -29,112 +32,135 @@ const FALLBACK_MODELS: Record<BuiltInProvider, string[]> = {
   google: ['gemini-1.5-pro', 'gemini-1.5-flash']
 };
 
+// Helper to safely access sessionStorage
+const getStorageValue = (key: string): string | null => {
+  if (typeof window === 'undefined') return null;
+  return window.sessionStorage.getItem(key);
+};
+
 export default function ModelSelect({
   selectedProvider,
   selectedModel,
   onProviderChange,
   onModelChange
 }: ModelSelectProps) {
-  const [hasKeys, setHasKeys] = useState<Record<string, boolean>>({});
-  const [availableModels, setAvailableModels] = useState<Record<string, string[]>>({});
+  // Memoize providers to prevent re-renders
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [hasKeys, setHasKeys] = useState<Record<string, boolean>>({});
+  const [availableModels, setAvailableModels] = useState<AvailableModels>({});
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load providers and check API keys
+  // Memoize the loadProviders function
+  const loadProviders = useCallback(() => {
+    // Get custom providers
+    const customProviders = getCustomProviders().map(provider => ({
+      id: provider.id,
+      name: provider.name,
+      type: 'custom' as const,
+      models: provider.models || []
+    })) as CustomProvider[];
+
+    // Combine built-in and custom providers
+    setProviders([...BUILT_IN_PROVIDERS, ...customProviders]);
+
+    // Check API keys
+    const anthropicKey = getStorageValue('anthropic_api_key');
+    const openaiKey = getStorageValue('openai_api_key');
+    const googleKey = getStorageValue('google_api_key');
+
+    setHasKeys({
+      anthropic: !!anthropicKey,
+      openai: !!openaiKey,
+      google: !!googleKey,
+      ...customProviders.reduce((acc, provider) => ({
+        ...acc,
+        [provider.id]: true // Custom providers don't need key validation
+      }), {})
+    });
+
+    // Load available models
+    const modelsStr = getStorageValue('available_models');
+    let models: AvailableModels;
+    
+    try {
+      models = modelsStr ? JSON.parse(modelsStr) : {};
+    } catch (error) {
+      console.error('Failed to parse available models:', error);
+      models = {};
+    }
+
+    setAvailableModels({
+      anthropic: models.anthropic || FALLBACK_MODELS.anthropic,
+      openai: models.openai || FALLBACK_MODELS.openai,
+      google: models.google || FALLBACK_MODELS.google,
+      ...customProviders.reduce((acc, provider) => ({
+        ...acc,
+        [provider.id]: provider.models || []
+      }), {})
+    });
+
+    setIsLoading(false);
+  }, []); // No dependencies needed as this only uses external state
+
+  // Load providers on mount and storage changes
   useEffect(() => {
-    const loadProviders = () => {
-      // Get custom providers
-      const customProviders = getCustomProviders().map(provider => ({
-        id: provider.id,
-        name: provider.name,
-        type: 'custom' as const,
-        models: provider.models || []
-      })) as CustomProvider[];
-
-      // Combine built-in and custom providers
-      setProviders([
-        ...BUILT_IN_PROVIDERS,
-        ...customProviders
-      ]);
-
-      // Check API keys
-      const anthropicKey = sessionStorage.getItem('anthropic_api_key');
-      const openaiKey = sessionStorage.getItem('openai_api_key');
-      const googleKey = sessionStorage.getItem('google_api_key');
-
-      setHasKeys({
-        anthropic: !!anthropicKey,
-        openai: !!openaiKey,
-        google: !!googleKey,
-        ...customProviders.reduce((acc, provider) => ({
-          ...acc,
-          [provider.id]: true // Custom providers don't need key validation
-        }), {})
-      });
-
-      // Load available models
-      const modelsStr = sessionStorage.getItem('available_models');
-      if (modelsStr) {
-        try {
-          const parsed = JSON.parse(modelsStr);
-          setAvailableModels({
-            anthropic: parsed.anthropic || FALLBACK_MODELS.anthropic,
-            openai: parsed.openai || FALLBACK_MODELS.openai,
-            google: parsed.google || FALLBACK_MODELS.google,
-            ...customProviders.reduce((acc, provider) => ({
-              ...acc,
-              [provider.id]: provider.models || []
-            }), {})
-          });
-        } catch (error) {
-          console.error('Failed to parse available models:', error);
-          setAvailableModels({
-            anthropic: FALLBACK_MODELS.anthropic,
-            openai: FALLBACK_MODELS.openai,
-            google: FALLBACK_MODELS.google,
-            ...customProviders.reduce((acc, provider) => ({
-              ...acc,
-              [provider.id]: provider.models || []
-            }), {})
-          });
-        }
-      } else {
-        setAvailableModels({
-          anthropic: FALLBACK_MODELS.anthropic,
-          openai: FALLBACK_MODELS.openai,
-          google: FALLBACK_MODELS.google,
-          ...customProviders.reduce((acc, provider) => ({
-            ...acc,
-            [provider.id]: provider.models || []
-          }), {})
-        });
-      }
-
-      setIsLoading(false);
-    };
-
     loadProviders();
 
-    // Listen for storage changes
     const handleStorageChange = (event: StorageEvent) => {
-      if (event.key === 'customProviders' || event.key?.endsWith('_api_key') || event.key === 'available_models') {
+      if (event.key === 'customProviders' || 
+          event.key?.endsWith('_api_key') || 
+          event.key === 'available_models') {
         loadProviders();
       }
     };
 
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
+  }, [loadProviders]);
 
-  // Reset model when provider changes
+  // Reset model when provider changes or available models update
   useEffect(() => {
-    if (selectedProvider) {
-      const providerId = getProviderId(selectedProvider);
-      if (providerId && (!selectedModel || !availableModels[providerId]?.includes(selectedModel))) {
+    if (selectedProvider && selectedModel) {
+      const providerId = isBuiltInProvider(selectedProvider) 
+        ? selectedProvider 
+        : selectedProvider.id;
+      
+      const providerModels = availableModels[providerId] || [];
+      if (!providerModels.includes(selectedModel)) {
         onModelChange(null);
       }
     }
   }, [selectedProvider, selectedModel, availableModels, onModelChange]);
+
+  // Memoize current provider's models
+  const currentModels = useMemo(() => {
+    if (!selectedProvider) return [];
+    const providerId = isBuiltInProvider(selectedProvider) 
+      ? selectedProvider 
+      : selectedProvider.id;
+    return availableModels[providerId] || [];
+  }, [selectedProvider, availableModels]);
+
+  // Memoize provider change handler
+  const handleProviderChange = useCallback((value: string) => {
+    if (!value) {
+      onProviderChange(null);
+      return;
+    }
+
+    // Check if it's a built-in provider
+    if (BUILT_IN_PROVIDERS.includes(value as BuiltInProvider)) {
+      onProviderChange(value as BuiltInProvider);
+    } else {
+      // Find custom provider
+      const customProvider = providers.find(p => 
+        isCustomProvider(p) && p.id === value
+      );
+      if (customProvider) {
+        onProviderChange(customProvider);
+      }
+    }
+  }, [providers, onProviderChange]);
 
   if (isLoading) {
     return (
@@ -145,35 +171,15 @@ export default function ModelSelect({
     );
   }
 
-  // Get the current provider's models
-  const currentModels = selectedProvider ? (() => {
-    const providerId = getProviderId(selectedProvider);
-    return providerId ? availableModels[providerId] || [] : [];
-  })() : [];
-
   return (
     <div className="space-y-2">
       {/* Provider Select */}
       <div>
         <select
-          value={selectedProvider ? getProviderId(selectedProvider) || '' : ''}
-          onChange={(e) => {
-            const value = e.target.value;
-            if (!value) {
-              onProviderChange(null);
-            } else {
-              // Check if it's a built-in provider
-              if (BUILT_IN_PROVIDERS.includes(value as BuiltInProvider)) {
-                onProviderChange(value as BuiltInProvider);
-              } else {
-                // Find custom provider
-                const customProvider = providers.find(p => !isBuiltInProvider(p) && p.id === value);
-                if (customProvider) {
-                  onProviderChange(customProvider);
-                }
-              }
-            }
-          }}
+          value={selectedProvider ? (isBuiltInProvider(selectedProvider) 
+            ? selectedProvider 
+            : selectedProvider.id) : ''}
+          onChange={(e) => handleProviderChange(e.target.value)}
           className="w-full px-3 py-1.5 text-sm rounded-lg bg-surface-2
             border border-surface-2 focus:border-primary
             focus:ring-1 focus:ring-primary"
@@ -192,7 +198,7 @@ export default function ModelSelect({
               </option>
             ))}
           </optgroup>
-
+          
           {/* Custom Providers */}
           {providers.filter(isCustomProvider).length > 0 && (
             <optgroup label="Custom Providers">

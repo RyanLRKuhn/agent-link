@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import AddModuleButton from './components/AddModuleButton';
 import WorkflowModule from './components/WorkflowModule';
 import FlowIndicator from './components/FlowIndicator';
@@ -31,7 +31,8 @@ export default function Home() {
     stopWorkflow
   } = useWorkflowStore();
 
-  const createModule = (index: number) => {
+  // Memoize module management functions
+  const createModule = useCallback((index: number) => {
     const newModule: WorkflowModuleData = {
       id: String(Date.now()),
       title: `Agent ${modules.length + 1}`,
@@ -45,18 +46,18 @@ export default function Home() {
       newModule,
       ...prev.slice(index + 1)
     ]);
-  };
+  }, [modules.length]);
 
-  const updateModule = (moduleId: string, updates: Partial<WorkflowModuleData>) => {
+  const updateModule = useCallback((moduleId: string, updates: Partial<WorkflowModuleData>) => {
     console.log('Updating module:', moduleId, updates); // Debug log
     setModules(prev => prev.map(module => 
       module.id === moduleId
         ? { ...module, ...updates }
         : module
     ));
-  };
+  }, []);
 
-  const deleteModule = (moduleId: string) => {
+  const deleteModule = useCallback((moduleId: string) => {
     setModules(prev => {
       const newModules = prev.filter(m => m.id !== moduleId);
       // Renumber modules
@@ -65,19 +66,19 @@ export default function Home() {
         title: `Agent ${index + 1}`
       }));
     });
-  };
+  }, []);
 
-  const handleRetryFromFailed = () => {
+  const handleRetryFromFailed = useCallback(() => {
     if (failedAgentIndex >= 0) {
       startWorkflow(modules, failedAgentIndex);
     }
-  };
+  }, [failedAgentIndex, modules, startWorkflow]);
 
-  const handleRetryAll = () => {
+  const handleRetryAll = useCallback(() => {
     startWorkflow(modules, 0);
-  };
+  }, [modules, startWorkflow]);
 
-  const handleExport = () => {
+  const handleExport = useCallback(() => {
     const exportData = {
       metadata: {
         timestamp: new Date().toISOString(),
@@ -112,15 +113,74 @@ export default function Home() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  };
+  }, [modules, results]);
+
+  // Memoize module rendering
+  const renderModules = useMemo(() => {
+    return modules.map((module, index) => {
+      const status = agentStatus[module.id];
+      const isActive = isRunning && currentAgentIndex === index;
+      const isPreviousActive = isRunning && currentAgentIndex === index - 1;
+      const previousModule = index > 0 ? modules[index - 1] : null;
+      const isTransitioning = isPreviousActive && status?.isExecuting;
+
+      return (
+        <div 
+          key={module.id} 
+          className="w-full flex flex-col items-center animate-slide-in"
+          style={{ animationDelay: `${index * 0.1}s` }}
+        >
+          {index > 0 && (
+            <FlowIndicator 
+              isActive={isPreviousActive}
+              fromAgent={previousModule?.title}
+              toAgent={module.title}
+              isTransitioning={isTransitioning}
+            />
+          )}
+
+          <div className={`w-full transition-all duration-300 ${
+            isActive ? 'scale-[1.02]' : ''
+          }`}>
+            <WorkflowModule 
+              module={module}
+              onUpdate={updateModule}
+              onDelete={deleteModule}
+              canDelete={modules.length > 1}
+              index={index}
+              isExecuting={status?.isExecuting}
+              isComplete={status?.isComplete}
+              executionError={status?.error}
+              executionTime={status?.executionTime}
+            />
+          </div>
+
+          {(status?.isExecuting || status?.isComplete || status?.error) && (
+            <div className="mt-4 animate-fade-in">
+              <StatusIndicator
+                isExecuting={status.isExecuting}
+                isComplete={status.isComplete}
+                error={status.error}
+                executionTime={status.executionTime}
+              />
+            </div>
+          )}
+
+          <div className="my-8">
+            <AddModuleButton 
+              onClick={() => createModule(index + 1)}
+            />
+          </div>
+        </div>
+      );
+    });
+  }, [modules, agentStatus, isRunning, currentAgentIndex, updateModule, deleteModule, createModule]);
 
   return (
     <div className="min-h-screen bg-[var(--surface-0)] flex flex-col">
-      {/* Main Content */}
       <main className="flex-1 p-6 overflow-auto">
         <div className="max-w-2xl mx-auto">
           <div className="flex flex-col items-center">
-            {/* Progress Bar */}
             {isRunning && (
               <ProgressBar 
                 totalSteps={modules.length} 
@@ -129,76 +189,13 @@ export default function Home() {
               />
             )}
 
-            {/* Initial Add Button */}
             <AddModuleButton 
               className="mb-8 animate-slide-in" 
               onClick={() => createModule(0)}
             />
             
-            {/* Modules */}
-            {modules.map((module, index) => {
-              const status = agentStatus[module.id];
-              const isActive = isRunning && currentAgentIndex === index;
-              const isPreviousActive = isRunning && currentAgentIndex === index - 1;
-              const previousModule = index > 0 ? modules[index - 1] : null;
-              const isTransitioning = isPreviousActive && status?.isExecuting;
+            {renderModules}
 
-              return (
-                <div 
-                  key={module.id} 
-                  className="w-full flex flex-col items-center animate-slide-in"
-                  style={{ animationDelay: `${index * 0.1}s` }}
-                >
-                  {/* Flow Indicator */}
-                  {index > 0 && (
-                    <FlowIndicator 
-                      isActive={isPreviousActive}
-                      fromAgent={previousModule?.title}
-                      toAgent={module.title}
-                      isTransitioning={isTransitioning}
-                    />
-                  )}
-
-                  {/* Module Card */}
-                  <div className={`w-full transition-all duration-300 ${
-                    isActive ? 'scale-[1.02]' : ''
-                  }`}>
-                    <WorkflowModule 
-                      module={module}
-                      onUpdate={updateModule}
-                      onDelete={deleteModule}
-                      canDelete={modules.length > 1}
-                      index={index}
-                      isExecuting={status?.isExecuting}
-                      isComplete={status?.isComplete}
-                      executionError={status?.error}
-                      executionTime={status?.executionTime}
-                    />
-                  </div>
-
-                  {/* Status Indicator */}
-                  {(status?.isExecuting || status?.isComplete || status?.error) && (
-                    <div className="mt-4 animate-fade-in">
-                      <StatusIndicator
-                        isExecuting={status.isExecuting}
-                        isComplete={status.isComplete}
-                        error={status.error}
-                        executionTime={status.executionTime}
-                      />
-                    </div>
-                  )}
-
-                  {/* Add Button Between Modules */}
-                  <div className="my-8">
-                    <AddModuleButton 
-                      onClick={() => createModule(index + 1)}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-
-            {/* Run/Stop Workflow Button */}
             <div className="w-full flex justify-center mb-16">
               {isRunning ? (
                 <button
@@ -227,7 +224,6 @@ export default function Home() {
               )}
             </div>
 
-            {/* Error Display */}
             {error && !isRunning && (
               <div className="w-full mb-16">
                 <ErrorDisplay
@@ -240,7 +236,6 @@ export default function Home() {
               </div>
             )}
 
-            {/* Final Output */}
             {!isRunning && results.length > 0 && !error && (
               <div className="w-full mt-16 pt-16 border-t border-[var(--border)]">
                 <WorkflowOutput 

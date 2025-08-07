@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { getCustomProviders, saveCustomProvider, deleteCustomProvider } from '../utils/customProviders';
+import { getCustomProviders, saveCustomProvider, deleteCustomProvider, exportProviders, importProviders } from '../utils/customProviders';
 import CustomProviderForm from './CustomProviderForm';
 
 /**
@@ -32,6 +32,11 @@ interface KeyStatus {
 interface RefreshStatus {
   type: 'success' | 'error' | 'warning';
   message: string;
+}
+
+interface DeleteConfirmation {
+  providerId: string;
+  providerName: string;
 }
 
 /**
@@ -78,6 +83,7 @@ export default function SettingsSidebar() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showCustomProviderForm, setShowCustomProviderForm] = useState(false);
   const [customProviders, setCustomProviders] = useState(getCustomProviders());
+  const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation | null>(null);
 
   /**
    * Load saved API keys from sessionStorage on mount
@@ -581,17 +587,97 @@ export default function SettingsSidebar() {
                 <div>
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-medium">Custom Providers</h3>
-                    <button
-                      onClick={() => setShowCustomProviderForm(true)}
-                      className="px-3 py-1.5 text-sm font-medium rounded-lg
-                        bg-blue-500 hover:bg-blue-600 text-white transition-colors
-                        flex items-center gap-2"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                      </svg>
-                      Add Provider
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {/* Export Button */}
+                      <button
+                        onClick={() => {
+                          const data = exportProviders();
+                          const blob = new Blob([data], { type: 'application/json' });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `custom-providers-${new Date().toISOString().split('.')[0].replace(/:/g, '-')}.json`;
+                          document.body.appendChild(a);
+                          a.click();
+                          document.body.removeChild(a);
+                          URL.revokeObjectURL(url);
+                        }}
+                        className="px-3 py-1.5 text-sm font-medium rounded-lg
+                          bg-surface-2 hover:bg-surface-3
+                          border border-surface-2 hover:border-surface-3
+                          transition-colors flex items-center gap-2"
+                        title="Export custom providers"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        Export
+                      </button>
+
+                      {/* Import Button */}
+                      <label
+                        className="px-3 py-1.5 text-sm font-medium rounded-lg
+                          bg-surface-2 hover:bg-surface-3
+                          border border-surface-2 hover:border-surface-3
+                          transition-colors flex items-center gap-2
+                          cursor-pointer"
+                        title="Import custom providers"
+                      >
+                        <input
+                          type="file"
+                          accept=".json"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+
+                            const reader = new FileReader();
+                            reader.onload = async (event) => {
+                              try {
+                                const result = importProviders(event.target?.result as string);
+                                if (result.imported > 0) {
+                                  setCustomProviders(getCustomProviders());
+                                  setRefreshStatus({
+                                    type: 'success',
+                                    message: `Imported ${result.imported} provider${result.imported === 1 ? '' : 's'}${
+                                      result.errors.length > 0 ? ` (${result.errors.length} error${result.errors.length === 1 ? '' : 's'})` : ''
+                                    }`
+                                  });
+                                }
+                                if (result.errors.length > 0) {
+                                  console.error('Import errors:', result.errors);
+                                }
+                              } catch (error) {
+                                setRefreshStatus({
+                                  type: 'error',
+                                  message: `Import failed: ${(error as Error).message}`
+                                });
+                              }
+                              // Clear the input
+                              e.target.value = '';
+                            };
+                            reader.readAsText(file);
+                          }}
+                        />
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                        </svg>
+                        Import
+                      </label>
+
+                      {/* Add Provider Button */}
+                      <button
+                        onClick={() => setShowCustomProviderForm(true)}
+                        className="px-3 py-1.5 text-sm font-medium rounded-lg
+                          bg-primary hover:bg-primary-hover text-white
+                          transition-colors flex items-center gap-2"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        Add Provider
+                      </button>
+                    </div>
                   </div>
 
                   {showCustomProviderForm ? (
@@ -606,25 +692,30 @@ export default function SettingsSidebar() {
                       {customProviders.map(provider => (
                         <div
                           key={provider.id}
-                          className="flex items-center justify-between p-4 rounded-lg
-                            bg-[var(--surface-2)] border border-[var(--border)]"
+                          className="flex items-center justify-between p-3 rounded-lg
+                            bg-surface-2 border border-surface-2"
                         >
                           <div>
                             <div className="font-medium">{provider.name}</div>
-                            <div className="text-sm text-[var(--text-secondary)]">
+                            <div className="text-sm text-text-secondary">
                               {provider.models?.length || 0} models
+                              {provider.lastTested && (
+                                <> • Last tested {new Date(provider.lastTested).toLocaleString()}</>
+                              )}
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => handleDeleteProvider(provider.id)}
-                              className="p-1.5 text-red-500 hover:bg-red-500/10 rounded transition-colors"
-                            >
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </button>
-                          </div>
+                          <button
+                            onClick={() => setDeleteConfirmation({
+                              providerId: provider.id,
+                              providerName: provider.name
+                            })}
+                            className="p-1.5 text-text-secondary hover:text-error
+                              hover:bg-error/10 rounded transition-colors"
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
                         </div>
                       ))}
                     </div>
@@ -639,6 +730,53 @@ export default function SettingsSidebar() {
                   )}
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {deleteConfirmation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div 
+            className="absolute inset-0 bg-surface-0/80 backdrop-blur-sm"
+            onClick={() => setDeleteConfirmation(null)}
+          />
+          <div className="relative bg-surface-1 rounded-lg shadow-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-2">Delete Provider?</h3>
+            <p className="text-text-secondary mb-4">
+              Are you sure you want to delete the provider "{deleteConfirmation.providerName}"? 
+              This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setDeleteConfirmation(null)}
+                className="px-3 py-1.5 text-sm font-medium rounded-lg
+                  bg-surface-2 hover:bg-surface-3
+                  border border-surface-2 hover:border-surface-3
+                  transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  deleteCustomProvider(deleteConfirmation.providerId);
+                  setCustomProviders(getCustomProviders());
+                  setDeleteConfirmation(null);
+                  setRefreshStatus({
+                    type: 'success',
+                    message: `Provider "${deleteConfirmation.providerName}" deleted`
+                  });
+                }}
+                className="px-3 py-1.5 text-sm font-medium rounded-lg
+                  bg-error hover:bg-error/90 text-white
+                  transition-colors flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Delete Provider
+              </button>
             </div>
           </div>
         </div>

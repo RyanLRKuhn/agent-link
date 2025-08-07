@@ -1,338 +1,471 @@
 'use client';
 
 import { useState } from 'react';
-import { CustomProvider, validateProviderConfig } from '../utils/customProviders';
+import { PROVIDER_TEMPLATES, ProviderTemplate } from '../utils/providerTemplates';
 
-/**
- * Props for the CustomProviderForm component
- * @interface CustomProviderFormProps
- */
-interface CustomProviderFormProps {
-  /** Callback function to save the provider configuration */
-  onSave: (config: Omit<CustomProvider, 'id' | 'createdAt'>) => void;
-  /** Callback function to cancel form submission */
+interface CustomProviderForm {
+  onSave: (config: any) => void;
   onCancel: () => void;
-  /** Optional initial data for editing an existing provider */
-  initialData?: Omit<CustomProvider, 'id' | 'createdAt'>;
 }
 
-/**
- * CustomProviderForm Component
- * 
- * A form for adding or editing custom LLM provider configurations.
- * Handles validation, testing, and saving of provider configurations.
- * 
- * @param {CustomProviderFormProps} props - Component props
- */
-export default function CustomProviderForm({
-  onSave,
-  onCancel,
-  initialData
-}: CustomProviderFormProps) {
-  // Form state with default values or initial data
-  const [formData, setFormData] = useState({
-    name: initialData?.name || '',
-    endpoint: initialData?.endpoint || '',
-    authType: initialData?.auth?.type || 'bearer',
-    authKey: initialData?.auth?.key || '',
-    requestTemplate: initialData?.requestTemplate
-      ? JSON.stringify(initialData.requestTemplate, null, 2)
-      : JSON.stringify({ body: { prompt: '{{prompt}}' } }, null, 2),
-    responsePath: initialData?.responsePath || '',
-    models: initialData?.models?.join(', ') || '',
-    description: initialData?.description || ''
-  });
-
-  // Error and test status state
+export default function CustomProviderForm({ onSave, onCancel }: CustomProviderForm) {
+  const [name, setName] = useState('');
+  const [endpoint, setEndpoint] = useState('');
+  const [authType, setAuthType] = useState<'bearer' | 'query' | 'header'>('bearer');
+  const [authKey, setAuthKey] = useState('Authorization');
+  const [apiKey, setApiKey] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [requestTemplate, setRequestTemplate] = useState('{}');
+  const [responsePath, setResponsePath] = useState('');
+  const [models, setModels] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isTestLoading, setIsTestLoading] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('custom');
+  const [documentation, setDocumentation] = useState<ProviderTemplate['documentation'] | null>(null);
 
-  /**
-   * Handle form input changes
-   * @param {React.ChangeEvent} e - Input change event
-   */
-  const handleInputChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
-  ) => {
-    setFormData(prev => ({
-      ...prev,
-      [e.target.name]: e.target.value
-    }));
-    setError(null);
-    setTestResult(null);
-  };
+  const handleTemplateChange = (templateId: string) => {
+    const template = PROVIDER_TEMPLATES.find(t => t.id === templateId);
+    if (template) {
+      setSelectedTemplate(templateId);
+      setDocumentation(template.documentation);
 
-  /**
-   * Validate form data and return config object if valid
-   * @returns {Object|null} Validated config object or null if invalid
-   */
-  const validateForm = () => {
-    try {
-      // Validate request template JSON
-      const requestTemplate = JSON.parse(formData.requestTemplate);
-
-      const config = {
-        name: formData.name,
-        endpoint: formData.endpoint,
-        auth: {
-          type: formData.authType as 'bearer' | 'query' | 'header',
-          key: formData.authKey
-        },
-        requestTemplate,
-        responsePath: formData.responsePath,
-        models: formData.models.split(',').map(m => m.trim()).filter(Boolean),
-        description: formData.description || undefined
-      };
-
-      const errors = validateProviderConfig(config);
-      if (errors.length > 0) {
-        setError(errors.map(e => `${e.field}: ${e.message}`).join('\n'));
-        return null;
+      if (templateId !== 'custom') {
+        setEndpoint(template.config.endpoint);
+        setAuthType(template.config.auth.type);
+        setAuthKey(template.config.auth.key);
+        setRequestTemplate(JSON.stringify(template.config.requestTemplate, null, 2));
+        setResponsePath(template.config.responsePath);
+        setModels(template.config.models?.join(', ') || '');
+      } else {
+        setEndpoint('');
+        setAuthType('bearer');
+        setAuthKey('Authorization');
+        setRequestTemplate('{}');
+        setResponsePath('');
+        setModels('');
       }
-
-      return config;
-    } catch (e) {
-      setError('Invalid JSON in request template');
-      return null;
     }
   };
 
-  /**
-   * Test the provider configuration with a sample request
-   */
-  const handleTest = async () => {
-    const config = validateForm();
-    if (!config) return;
+  // Helper function to get user-friendly auth type name
+  const getAuthTypeName = (type: 'bearer' | 'query' | 'header') => {
+    switch (type) {
+      case 'bearer':
+        return 'Bearer Token (most common)';
+      case 'query':
+        return 'URL Query Parameter';
+      case 'header':
+        return 'Custom Header';
+    }
+  };
 
-    setIsTestLoading(true);
-    setTestResult(null);
+  // Helper function to get user-friendly auth description
+  const getAuthDescription = (type: 'bearer' | 'query' | 'header') => {
+    switch (type) {
+      case 'bearer':
+        return 'Your API key will be sent in the Authorization header with "Bearer" prefix';
+      case 'query':
+        return 'Your API key will be added to the URL as a query parameter';
+      case 'header':
+        return 'Your API key will be sent in a custom HTTP header';
+    }
+  };
+
+  const handleTest = async () => {
+    setIsLoading(true);
     setError(null);
 
     try {
-      // Make a test request to the custom provider
-      const response = await fetch('/api/custom', {
+      // Basic validation
+      if (!name.trim()) throw new Error('Provider name is required');
+      if (!endpoint.trim()) throw new Error('Endpoint URL is required');
+      if (!apiKey.trim()) throw new Error('API key is required');
+      if (!responsePath.trim()) throw new Error('Response path is required');
+      if (!models.trim()) throw new Error('At least one model is required');
+
+      // Validate URL format
+      try {
+        new URL(endpoint);
+      } catch (error) {
+        throw new Error('Invalid URL format');
+      }
+
+      // Validate JSON format
+      let requestConfig;
+      try {
+        requestConfig = JSON.parse(requestTemplate);
+        if (typeof requestConfig !== 'object') throw new Error();
+      } catch (error) {
+        throw new Error('Invalid JSON format in request template');
+      }
+
+      const config = {
+        name,
+        endpoint,
+        auth: {
+          type: authType,
+          key: authKey,
+          value: apiKey
+        },
+        requestTemplate: requestConfig,
+        responsePath,
+        models: models.split(',').map(m => m.trim()).filter(Boolean)
+      };
+
+      // Call the test endpoint
+      const response = await fetch('/api/custom/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: 'Test prompt',
-          apiKey: 'test_key',
-          model: config.models[0] || 'test_model',
-          providerConfig: {
-            endpoint: config.endpoint,
-            method: 'POST',
-            auth: config.auth,
-            requestTemplate: config.requestTemplate,
-            responsePath: config.responsePath
-          }
-        })
+        body: JSON.stringify(config)
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Test failed');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to test configuration');
       }
 
-      setTestResult({
-        success: true,
-        message: 'Configuration test successful!'
-      });
-    } catch (e) {
-      setTestResult({
-        success: false,
-        message: `Test failed: ${(e as Error).message}`
-      });
+      setError('Configuration test successful!');
+    } catch (err) {
+      setError((err as Error).message);
     } finally {
-      setIsTestLoading(false);
+      setIsLoading(false);
     }
   };
 
-  /**
-   * Handle form submission
-   * @param {React.FormEvent} e - Form submit event
-   */
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const config = validateForm();
-    if (config) {
+  const handleSave = () => {
+    try {
+      // Basic validation
+      if (!name.trim()) throw new Error('Provider name is required');
+      if (!endpoint.trim()) throw new Error('Endpoint URL is required');
+      if (!apiKey.trim()) throw new Error('API key is required');
+      if (!responsePath.trim()) throw new Error('Response path is required');
+      if (!models.trim()) throw new Error('At least one model is required');
+
+      // Validate URL format
+      try {
+        new URL(endpoint);
+      } catch (error) {
+        throw new Error('Invalid URL format');
+      }
+
+      // Validate JSON format
+      let requestConfig;
+      try {
+        requestConfig = JSON.parse(requestTemplate);
+        if (typeof requestConfig !== 'object') throw new Error();
+      } catch (error) {
+        throw new Error('Invalid JSON format in request template');
+      }
+
+      const config = {
+        name,
+        endpoint,
+        auth: {
+          type: authType,
+          key: authKey,
+          value: apiKey
+        },
+        requestTemplate: requestConfig,
+        responsePath,
+        models: models.split(',').map(m => m.trim()).filter(Boolean)
+      };
+
       onSave(config);
+    } catch (err) {
+      setError((err as Error).message);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <div className="space-y-4">
+      {/* Template Selector */}
+      <div>
+        <label className="block text-sm font-medium text-text-secondary mb-1">
+          Provider Template
+        </label>
+        <select
+          value={selectedTemplate}
+          onChange={(e) => handleTemplateChange(e.target.value)}
+          className="w-full px-3 py-1.5 text-sm rounded-lg bg-surface-2
+            border border-surface-2 focus:border-primary
+            focus:ring-1 focus:ring-primary"
+        >
+          {PROVIDER_TEMPLATES.map(template => (
+            <option key={template.id} value={template.id}>
+              {template.name} - {template.description}
+            </option>
+          ))}
+        </select>
+      </div>
+
       {/* Provider Name */}
       <div>
-        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+        <label className="block text-sm font-medium text-text-secondary mb-1">
           Provider Name
         </label>
         <input
           type="text"
-          name="name"
-          value={formData.name}
-          onChange={handleInputChange}
-          className="w-full px-3 py-2 text-sm rounded-lg bg-[var(--surface-1)] border border-[var(--border)]
-            focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/50"
-          placeholder="e.g., Custom GPT Provider"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g., My Custom LLM"
+          className="w-full px-3 py-1.5 text-sm rounded-lg bg-surface-2
+            border border-surface-2 focus:border-primary
+            focus:ring-1 focus:ring-primary"
         />
       </div>
 
-      {/* API Endpoint */}
+      {/* Endpoint URL */}
       <div>
-        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+        <label className="block text-sm font-medium text-text-secondary mb-1">
           API Endpoint
+          {documentation && (
+            <span className="block text-xs text-text-tertiary mt-0.5">
+              {documentation.endpoint}
+            </span>
+          )}
         </label>
         <input
           type="text"
-          name="endpoint"
-          value={formData.endpoint}
-          onChange={handleInputChange}
-          className="w-full px-3 py-2 text-sm rounded-lg bg-[var(--surface-1)] border border-[var(--border)]
-            focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/50"
-          placeholder="https://api.example.com/v1/{{model}}"
+          value={endpoint}
+          onChange={(e) => setEndpoint(e.target.value)}
+          placeholder="https://api.example.com/v1/completions"
+          className="w-full px-3 py-1.5 text-sm rounded-lg bg-surface-2
+            border border-surface-2 focus:border-primary
+            focus:ring-1 focus:ring-primary"
         />
       </div>
 
       {/* Authentication */}
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
-            Authentication Type
-          </label>
-          <select
-            name="authType"
-            value={formData.authType}
-            onChange={handleInputChange}
-            className="w-full px-3 py-2 text-sm rounded-lg bg-[var(--surface-1)] border border-[var(--border)]
-              focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/50"
-          >
-            <option value="bearer">Bearer Token</option>
-            <option value="query">Query Parameter</option>
-            <option value="header">Header</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
-            Auth Key Name
-          </label>
-          <input
-            type="text"
-            name="authKey"
-            value={formData.authKey}
-            onChange={handleInputChange}
-            className="w-full px-3 py-2 text-sm rounded-lg bg-[var(--surface-1)] border border-[var(--border)]
-              focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/50"
-            placeholder={formData.authType === 'bearer' ? 'Authorization' : 'api_key'}
-          />
+      <div>
+        <label className="block text-sm font-medium text-text-secondary mb-3">
+          Authentication
+          {documentation && (
+            <span className="block text-xs text-text-tertiary mt-0.5">
+              {documentation.auth}
+            </span>
+          )}
+        </label>
+        <div className="space-y-4">
+          {/* Auth Type */}
+          <div>
+            <label className="block text-xs text-text-secondary mb-1">
+              Authentication Type
+            </label>
+            <select
+              value={authType}
+              onChange={(e) => {
+                const newType = e.target.value as 'bearer' | 'query' | 'header';
+                setAuthType(newType);
+                // Set default auth key name based on type
+                switch (newType) {
+                  case 'bearer':
+                    setAuthKey('Authorization');
+                    break;
+                  case 'query':
+                    setAuthKey('key');
+                    break;
+                  case 'header':
+                    setAuthKey('x-api-key');
+                    break;
+                }
+              }}
+              className="w-full px-3 py-1.5 text-sm rounded-lg bg-surface-2
+                border border-surface-2 focus:border-primary
+                focus:ring-1 focus:ring-primary"
+            >
+              {(['bearer', 'query', 'header'] as const).map(type => (
+                <option key={type} value={type}>
+                  {getAuthTypeName(type)}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-text-tertiary">
+              {getAuthDescription(authType)}
+            </p>
+          </div>
+
+          {/* Auth Key Name - Only shown and editable for custom header */}
+          {authType === 'header' ? (
+            <div>
+              <label className="block text-xs text-text-secondary mb-1">
+                Custom Header Name
+              </label>
+              <input
+                type="text"
+                value={authKey}
+                onChange={(e) => setAuthKey(e.target.value)}
+                placeholder="e.g., x-api-key"
+                className="w-full px-3 py-1.5 text-sm rounded-lg bg-surface-2
+                  border border-surface-2 focus:border-primary
+                  focus:ring-1 focus:ring-primary"
+              />
+              <p className="mt-1 text-xs text-text-tertiary">
+                The name of the custom HTTP header that will contain your API key
+              </p>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-xs text-text-secondary mb-1">
+                {authType === 'bearer' ? 'Authorization Header' : 'Query Parameter Name'}
+              </label>
+              <div className="w-full px-3 py-1.5 text-sm rounded-lg bg-surface-2/50
+                border border-surface-2 text-text-secondary">
+                {authKey}
+              </div>
+              <p className="mt-1 text-xs text-text-tertiary">
+                {authType === 'bearer' 
+                  ? 'Standard header name for Bearer token authentication'
+                  : 'Standard query parameter name for API key'}
+              </p>
+            </div>
+          )}
+
+          {/* API Key */}
+          <div>
+            <label className="block text-xs text-text-secondary mb-1">
+              API Key
+            </label>
+            <div className="relative">
+              <input
+                type={showApiKey ? 'text' : 'password'}
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder={authType === 'bearer' 
+                  ? 'sk_...' 
+                  : authType === 'query'
+                    ? 'Your API key'
+                    : 'Enter API key'
+                }
+                className="w-full px-3 py-1.5 text-sm rounded-lg bg-surface-2
+                  border border-surface-2 focus:border-primary
+                  focus:ring-1 focus:ring-primary pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowApiKey(!showApiKey)}
+                className="absolute inset-y-0 right-0 px-3
+                  text-text-secondary hover:text-text-primary
+                  transition-colors"
+              >
+                {showApiKey ? (
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                  </svg>
+                )}
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-text-tertiary">
+              {authType === 'bearer'
+                ? 'Your secret API key - will be sent as "Bearer YOUR_KEY"'
+                : authType === 'query'
+                  ? 'Your secret API key - will be added to URLs as ?key=YOUR_KEY'
+                  : 'Your secret API key - will be sent in the custom header'
+              }
+            </p>
+          </div>
         </div>
       </div>
 
       {/* Request Template */}
       <div>
-        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
-          Request Template (JSON)
+        <label className="block text-sm font-medium text-text-secondary mb-1">
+          Request Template
+          {documentation && (
+            <span className="block text-xs text-text-tertiary mt-0.5">
+              {documentation.requestFormat}
+            </span>
+          )}
         </label>
         <textarea
-          name="requestTemplate"
-          value={formData.requestTemplate}
-          onChange={handleInputChange}
-          rows={5}
-          className="w-full px-3 py-2 text-sm font-mono rounded-lg bg-[var(--surface-1)] border border-[var(--border)]
-            focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/50"
-          placeholder="Enter request template JSON..."
+          value={requestTemplate}
+          onChange={(e) => setRequestTemplate(e.target.value)}
+          placeholder="JSON template with {{prompt}} and {{model}} variables"
+          rows={6}
+          className="w-full px-3 py-1.5 text-sm rounded-lg bg-surface-2
+            border border-surface-2 focus:border-primary
+            focus:ring-1 focus:ring-primary font-mono"
         />
       </div>
 
       {/* Response Path */}
       <div>
-        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+        <label className="block text-sm font-medium text-text-secondary mb-1">
           Response Path
+          {documentation && (
+            <span className="block text-xs text-text-tertiary mt-0.5">
+              {documentation.responseFormat}
+            </span>
+          )}
         </label>
         <input
           type="text"
-          name="responsePath"
-          value={formData.responsePath}
-          onChange={handleInputChange}
-          className="w-full px-3 py-2 text-sm rounded-lg bg-[var(--surface-1)] border border-[var(--border)]
-            focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/50"
-          placeholder="response.choices[0].text"
+          value={responsePath}
+          onChange={(e) => setResponsePath(e.target.value)}
+          placeholder="e.g., choices[0].message.content"
+          className="w-full px-3 py-1.5 text-sm rounded-lg bg-surface-2
+            border border-surface-2 focus:border-primary
+            focus:ring-1 focus:ring-primary"
         />
       </div>
 
       {/* Available Models */}
       <div>
-        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
-          Available Models (comma-separated)
+        <label className="block text-sm font-medium text-text-secondary mb-1">
+          Available Models
+          {documentation && (
+            <span className="block text-xs text-text-tertiary mt-0.5">
+              {documentation.models}
+            </span>
+          )}
         </label>
         <input
           type="text"
-          name="models"
-          value={formData.models}
-          onChange={handleInputChange}
-          className="w-full px-3 py-2 text-sm rounded-lg bg-[var(--surface-1)] border border-[var(--border)]
-            focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/50"
+          value={models}
+          onChange={(e) => setModels(e.target.value)}
           placeholder="model-1, model-2, model-3"
+          className="w-full px-3 py-1.5 text-sm rounded-lg bg-surface-2
+            border border-surface-2 focus:border-primary
+            focus:ring-1 focus:ring-primary"
         />
       </div>
 
-      {/* Description */}
-      <div>
-        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
-          Description (optional)
-        </label>
-        <input
-          type="text"
-          name="description"
-          value={formData.description}
-          onChange={handleInputChange}
-          className="w-full px-3 py-2 text-sm rounded-lg bg-[var(--surface-1)] border border-[var(--border)]
-            focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/50"
-          placeholder="Brief description of this provider..."
-        />
-      </div>
-
-      {/* Error Display */}
+      {/* Error Message */}
       {error && (
-        <div className="p-3 text-sm rounded-lg bg-red-500/10 border border-red-500/20 text-red-500">
-          <pre className="whitespace-pre-wrap font-mono">{error}</pre>
-        </div>
-      )}
-
-      {/* Test Result */}
-      {testResult && (
         <div className={`p-3 text-sm rounded-lg ${
-          testResult.success
-            ? 'bg-green-500/10 border-green-500/20 text-green-500'
-            : 'bg-red-500/10 border-red-500/20 text-red-500'
-        } border`}>
-          <div className="flex items-center gap-2">
-            {testResult.success ? (
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            ) : (
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            )}
-            {testResult.message}
-          </div>
+          error === 'Configuration test successful!'
+            ? 'bg-success/10 text-success border border-success/20'
+            : 'bg-error/10 text-error border border-error/20'
+        }`}>
+          {error}
         </div>
       )}
 
-      {/* Buttons */}
-      <div className="flex justify-end gap-3 pt-2">
+      {/* Actions */}
+      <div className="flex justify-end gap-2">
         <button
-          type="button"
+          onClick={onCancel}
+          className="px-3 py-1.5 text-sm font-medium rounded-lg
+            bg-surface-2 hover:bg-surface-3
+            border border-surface-2 hover:border-surface-3
+            transition-colors"
+        >
+          Cancel
+        </button>
+        <button
           onClick={handleTest}
-          disabled={isTestLoading}
-          className="px-4 py-2 text-sm font-medium rounded-lg
-            bg-[var(--surface-2)] hover:bg-[var(--surface-3)]
-            border border-[var(--border)] transition-colors
-            disabled:opacity-50 disabled:cursor-not-allowed
+          disabled={isLoading}
+          className="px-3 py-1.5 text-sm font-medium rounded-lg
+            bg-surface-2 hover:bg-surface-3
+            border border-surface-2 hover:border-surface-3
+            transition-colors disabled:opacity-50 disabled:cursor-not-allowed
             flex items-center gap-2"
         >
-          {isTestLoading ? (
+          {isLoading ? (
             <>
               <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -341,36 +474,19 @@ export default function CustomProviderForm({
               Testing...
             </>
           ) : (
-            <>
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-              Test Configuration
-            </>
+            'Test Configuration'
           )}
         </button>
         <button
-          type="button"
-          onClick={onCancel}
-          className="px-4 py-2 text-sm font-medium rounded-lg
-            bg-[var(--surface-2)] hover:bg-[var(--surface-3)]
-            border border-[var(--border)] transition-colors"
+          onClick={handleSave}
+          disabled={isLoading}
+          className="px-3 py-1.5 text-sm font-medium rounded-lg
+            bg-primary hover:bg-primary-hover text-white
+            transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          className="px-4 py-2 text-sm font-medium rounded-lg
-            bg-blue-500 hover:bg-blue-600 text-white
-            transition-colors disabled:opacity-50
-            flex items-center gap-2"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
           Save Provider
         </button>
       </div>
-    </form>
+    </div>
   );
 } 

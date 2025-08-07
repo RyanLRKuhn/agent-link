@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback, memo } from 'react';
 import ModelSelect from './ModelSelect';
+import { getProviderEndpoint } from '../utils/providerEndpoints';
 import { getCustomProviders } from '../utils/customProviders';
-import { Provider, isBuiltInProvider, getProviderId } from '../types/workflow';
+import { Provider, isBuiltInProvider, isCustomProvider, CustomProvider } from '../types/workflow';
 
 interface WorkflowModuleData {
   id: string;
@@ -34,7 +35,21 @@ interface TestResponse {
   };
 }
 
-export default function WorkflowModule({
+interface CustomProviderConfig extends CustomProvider {
+  auth: {
+    type: 'bearer' | 'query' | 'header';
+    key: string;
+    value: string;
+  };
+}
+
+// Helper to safely access sessionStorage
+const getStorageValue = (key: string): string | null => {
+  if (typeof window === 'undefined') return null;
+  return window.sessionStorage.getItem(key);
+};
+
+const WorkflowModule = memo(function WorkflowModule({
   module,
   onUpdate,
   onDelete,
@@ -50,104 +65,110 @@ export default function WorkflowModule({
   const [error, setError] = useState<string | null>(null);
   const [testResponse, setTestResponse] = useState<TestResponse | null>(null);
   const [isResponseExpanded, setIsResponseExpanded] = useState(true);
+  const [showApiKey, setShowApiKey] = useState(false);
 
-  const handleTest = async () => {
-    if (!module.prompt || !module.provider || !module.selectedModel) return;
-    
+  // Memoize update handlers to prevent re-renders
+  const handlePromptChange = useCallback((newPrompt: string) => {
+    onUpdate(module.id, { prompt: newPrompt });
+  }, [module.id, onUpdate]);
+
+  const handleProviderChange = useCallback((provider: Provider | null) => {
+    onUpdate(module.id, { 
+      provider,
+      selectedModel: null // Reset model when provider changes
+    });
+  }, [module.id, onUpdate]);
+
+  const handleModelChange = useCallback((model: string | null) => {
+    onUpdate(module.id, { selectedModel: model });
+  }, [module.id, onUpdate]);
+
+  const handleTest = useCallback(async () => {
+    if (!module.prompt || !module.provider || !module.selectedModel) {
+      setError('Please select a provider and model, and enter a prompt.');
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
     setTestResponse(null);
 
     try {
-      // Get API key based on provider
+      const provider = module.provider; // Capture for type narrowing
+      const endpoint = getProviderEndpoint(provider);
+      console.log('Testing provider:', provider);
+      console.log('Using endpoint:', endpoint);
+
       let apiKey: string | null = null;
-      if (isBuiltInProvider(module.provider)) {
-        apiKey = sessionStorage.getItem(`${module.provider}_api_key`);
-      }
+      let customProvider: CustomProviderConfig | null = null;
 
-      // Get custom provider config if applicable
-      const customProvider = module.provider 
-        ? getCustomProviders().find(p => p.id === getProviderId(module.provider))
-        : null;
-
-      // Map provider to correct API endpoint
-      let endpoint: string;
-      if (customProvider) {
-        endpoint = '/api/custom';
-      } else if (isBuiltInProvider(module.provider)) {
-        switch (module.provider) {
-          case 'anthropic':
-            endpoint = '/api/claude';
-            break;
-          case 'openai':
-            endpoint = '/api/openai';
-            break;
-          case 'google':
-            endpoint = '/api/gemini';
-            break;
-          default:
-            throw new Error('Unknown provider');
+      if (isBuiltInProvider(provider)) {
+        apiKey = getStorageValue(`${provider}_api_key`);
+        if (!apiKey) {
+          throw new Error(`API key not found for ${provider}`);
         }
+      } else if (isCustomProvider(provider)) {
+        const foundProvider = getCustomProviders().find(p => p.id === provider.id) as CustomProviderConfig;
+        if (!foundProvider) {
+          throw new Error('Custom provider configuration not found');
+        }
+        customProvider = foundProvider;
+        apiKey = foundProvider.auth.value; // Extract API key from custom provider config
       } else {
-        throw new Error('Invalid provider');
+        throw new Error('Invalid provider type');
       }
 
-      console.log('Calling API endpoint:', endpoint);
+      // Prepare request payload
+      const requestPayload = {
+        prompt: module.prompt,
+        apiKey, // API key is now always at top level
+        model: module.selectedModel,
+        ...(customProvider && {
+          providerConfig: {
+            ...customProvider,
+            // Remove auth.value from providerConfig to avoid duplication
+            auth: {
+              ...customProvider.auth,
+              value: undefined // API key is now at top level
+            }
+          }
+        })
+      };
 
-      // Make API request
+      console.log('Making API request to:', endpoint);
+
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: module.prompt,
-          apiKey,
-          model: module.selectedModel,
-          ...(customProvider && { providerConfig: customProvider })
-        })
+        body: JSON.stringify(requestPayload)
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to get response');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to get response');
       }
 
       const data = await response.json();
       
-      // Store test response with metadata
-      const newResponse: TestResponse = {
+      const newResponse = {
         text: data.response,
         timestamp: new Date().toISOString(),
         usage: data.usage
       };
       setTestResponse(newResponse);
 
-    } catch (error) {
-      console.error('Test error:', error);
-      setError((error as Error).message);
+    } catch (err) {
+      console.error('Test error:', err);
+      setError((err as Error).message);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [module.prompt, module.provider, module.selectedModel]);
 
   const handleCopyResponse = () => {
     if (testResponse?.text) {
       navigator.clipboard.writeText(testResponse.text);
     }
-  };
-
-  const handlePromptChange = (newPrompt: string) => {
-    onUpdate(module.id, { prompt: newPrompt });
-  };
-
-  const handleProviderChange = (provider: Provider | null) => {
-    onUpdate(module.id, { 
-      provider,
-      selectedModel: null // Reset model when provider changes
-    });
-  };
-
-  const handleModelChange = (model: string | null) => {
-    onUpdate(module.id, { selectedModel: model });
   };
 
   return (
@@ -345,4 +366,6 @@ export default function WorkflowModule({
       )}
     </div>
   );
-} 
+});
+
+export default WorkflowModule; 

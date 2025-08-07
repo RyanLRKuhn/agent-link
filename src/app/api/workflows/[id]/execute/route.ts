@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getWorkflow } from '@/lib/workflows';
 import { getProvider } from '@/lib/providers';
+import { getBaseUrl } from '@/app/utils/getBaseUrl';
 
 interface ApiKeys {
   anthropic?: string;
@@ -24,7 +25,8 @@ interface ExecutionResult {
 async function executeModule(
   module: any,
   input: string,
-  apiKeys: ApiKeys
+  apiKeys: ApiKeys,
+  requestHeaders: Headers
 ): Promise<ExecutionResult> {
   const startTime = Date.now();
 
@@ -89,8 +91,12 @@ async function executeModule(
       }`);
     }
 
+    // Get base URL from request headers or environment
+    const baseUrl = getBaseUrl(requestHeaders);
+    console.log(`Using base URL: ${baseUrl} for endpoint: ${endpoint}`);
+
     // Make request to appropriate endpoint
-    const response = await fetch(new URL(endpoint, process.env.VERCEL_URL).toString(), {
+    const response = await fetch(new URL(endpoint, baseUrl).toString(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody)
@@ -152,7 +158,7 @@ export async function POST(
         // Use previous output as input, or module's prompt for first module
         currentInput = i === 0 ? module.prompt : results[i - 1].output;
 
-        const result = await executeModule(module, currentInput, apiKeys);
+        const result = await executeModule(module, currentInput, apiKeys, request.headers);
         results.push({
           ...result,
           agentIndex: i

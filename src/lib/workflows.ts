@@ -134,6 +134,94 @@ function getKVCredentials(): { url: string; token: string } {
 }
 
 /**
+ * Log KV connection details (safely)
+ */
+function logConnectionDetails() {
+  const url = process.env.KV_REST_API_URL || '';
+  if (!url) {
+    console.warn('⚠️ KV_REST_API_URL not set');
+    return;
+  }
+
+  try {
+    const parsedUrl = new URL(url);
+    // Mask most of the host but show enough to identify instance
+    const maskedHost = `${parsedUrl.host.slice(0, 4)}...${parsedUrl.host.slice(-8)}`;
+    console.log(`KV Connection: ${parsedUrl.protocol}//${maskedHost}`);
+  } catch (error) {
+    console.warn('⚠️ Invalid KV_REST_API_URL format');
+  }
+}
+
+/**
+ * Check TTL for a key
+ */
+async function checkKeyTTL(key: string): Promise<{ ttl: number | null; error?: string }> {
+  try {
+    const ttl = await kv.ttl(key);
+    return { ttl };
+  } catch (error) {
+    return { 
+      ttl: null,
+      error: error instanceof Error ? error.message : 'Unknown error checking TTL'
+    };
+  }
+}
+
+const WORKFLOW_INDEX_KEY = 'workflow_index';
+
+/**
+ * Add workflow ID to index
+ */
+async function addToIndex(workflowId: string): Promise<void> {
+  try {
+    console.log(`Adding workflow ${workflowId} to index...`);
+    await kv.sadd(WORKFLOW_INDEX_KEY, workflowId);
+    console.log(`✓ Added to index successfully`);
+  } catch (error) {
+    console.error(`❌ Error adding to index:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Remove workflow ID from index
+ */
+async function removeFromIndex(workflowId: string): Promise<void> {
+  try {
+    console.log(`Removing workflow ${workflowId} from index...`);
+    await kv.srem(WORKFLOW_INDEX_KEY, workflowId);
+    console.log(`✓ Removed from index successfully`);
+  } catch (error) {
+    console.error(`❌ Error removing from index:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Get all workflow IDs from index
+ */
+async function getIndexedIds(): Promise<string[]> {
+  try {
+    console.log(`Fetching workflow IDs from index...`);
+    const ids = await kv.smembers(WORKFLOW_INDEX_KEY) as string[];
+    
+    // Filter out any empty or invalid IDs
+    const validIds = ids.filter(id => id && id.trim().length > 0);
+    
+    console.log(`✓ Found ${validIds.length} valid indexed workflows`);
+    if (validIds.length !== ids.length) {
+      console.warn(`⚠️ Filtered out ${ids.length - validIds.length} invalid IDs`);
+    }
+    
+    return validIds;
+  } catch (error) {
+    console.error(`❌ Error fetching index:`, error);
+    throw error;
+  }
+}
+
+/**
  * Save a workflow to Vercel KV storage
  */
 export async function saveWorkflow(
@@ -142,9 +230,11 @@ export async function saveWorkflow(
   description?: string,
   existingId?: string
 ): Promise<StoredWorkflow> {
+  const startTime = Date.now();
   try {
     // Get credentials with fallbacks
     getKVCredentials();
+    logConnectionDetails();
 
     const now = new Date().toISOString();
     const workflow: StoredWorkflow = {
@@ -156,15 +246,46 @@ export async function saveWorkflow(
       updatedAt: now
     };
 
-    console.log(`Saving workflow ${workflow.id}...`);
+    const key = `workflow:${workflow.id}`;
+    console.log(`\nSaving workflow to KV storage...`);
+    console.log(`Key: ${key}`);
+    console.log(`Name: ${workflow.name}`);
+    console.log(`Modules: ${workflow.modules.length}`);
 
-    // Save workflow directly - no list maintenance
-    await kv.set(`workflow:${workflow.id}`, workflow);
-    console.log(`Workflow ${workflow.id} saved successfully`);
+    // Save workflow and update index
+    const saveStart = Date.now();
+    console.log('KV.set parameters:', {
+      key,
+      valueSize: JSON.stringify(workflow).length,
+      options: 'No TTL/expiration set'
+    });
+
+    await Promise.all([
+      kv.set(key, workflow),
+      addToIndex(workflow.id)
+    ]);
+
+    const saveTime = Date.now() - saveStart;
+    console.log(`✓ Workflow and index saved successfully (${saveTime}ms)`);
+
+    // Check TTL after save
+    const ttlStart = Date.now();
+    const { ttl, error: ttlError } = await checkKeyTTL(key);
+    const ttlTime = Date.now() - ttlStart;
+
+    if (ttlError) {
+      console.warn(`⚠️ Error checking TTL: ${ttlError} (${ttlTime}ms)`);
+    } else {
+      console.log(`TTL check (${ttlTime}ms):`, ttl === -1 ? 'No expiration' : `Expires in ${ttl}s`);
+    }
+
+    const totalTime = Date.now() - startTime;
+    console.log(`Total operation time: ${totalTime}ms\n`);
 
     return workflow;
   } catch (error) {
-    console.error('Error in saveWorkflow:', error);
+    const totalTime = Date.now() - startTime;
+    console.error(`❌ Error saving workflow (${totalTime}ms):`, error);
     throw error;
   }
 }
@@ -190,34 +311,65 @@ export async function getWorkflow(id: string): Promise<StoredWorkflow | null> {
  * List all saved workflows (without full module data)
  */
 export async function listWorkflows(): Promise<Array<Omit<StoredWorkflow, 'modules'>>> {
+  const startTime = Date.now();
   try {
-    console.log('Fetching workflow list...');
+    console.log('\nFetching workflow list using index...');
+    logConnectionDetails();
 
-    // Get all workflow keys
-    const keys = await kv.keys('workflow:*');
-    console.log(`Found ${keys.length} workflow keys`);
+    // Get all workflow IDs from index
+    const idsStart = Date.now();
+    const workflowIds = await getIndexedIds();
+    const idsTime = Date.now() - idsStart;
+    console.log(`Found ${workflowIds.length} indexed workflows (${idsTime}ms)`);
 
-    // Filter out the old list key and extract IDs
-    const workflowIds = keys
-      .filter(key => key !== 'workflow:list')
-      .map(key => key.replace('workflow:', ''));
+    // Check TTL for each workflow
+    console.log('\nChecking TTLs...');
+    const ttlResults = await Promise.all(
+      workflowIds.map(async (id) => {
+        const key = `workflow:${id}`;
+        const { ttl, error } = await checkKeyTTL(key);
+        return {
+          key,
+          id,
+          ttl,
+          error,
+          hasExpiration: ttl !== -1 && ttl !== null
+        };
+      })
+    );
+
+    const expiringKeys = ttlResults.filter(r => r.hasExpiration);
+    if (expiringKeys.length > 0) {
+      console.warn('⚠️ Found keys with expiration:', expiringKeys);
+    }
 
     // Fetch all workflows in parallel
+    const fetchStart = Date.now();
     const workflows = await Promise.all(
       workflowIds.map(async id => {
         try {
+          console.log(`\nFetching workflow: ${id}`);
+          const fetchStartTime = Date.now();
           const workflow = await getWorkflow(id);
+          const fetchTime = Date.now() - fetchStartTime;
+
           if (!workflow) {
-            console.warn(`Missing workflow for ID: ${id}`);
+            console.warn(`❌ Missing workflow for ID: ${id} (${fetchTime}ms)`);
+            // Remove from index if workflow doesn't exist
+            await removeFromIndex(id);
             return null;
           }
+
+          console.log(`✓ Fetched workflow: ${workflow.name} (${fetchTime}ms)`);
           return workflow;
         } catch (error) {
-          console.warn(`Error fetching workflow ${id}:`, error);
+          console.warn(`❌ Error fetching workflow ${id}:`, error);
           return null;
         }
       })
     );
+
+    const fetchTime = Date.now() - fetchStart;
 
     // Filter out nulls and extract metadata
     const workflowList = workflows
@@ -231,13 +383,27 @@ export async function listWorkflows(): Promise<Array<Omit<StoredWorkflow, 'modul
       }))
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 
-    console.log(`Returning ${workflowList.length} workflows`);
+    const totalTime = Date.now() - startTime;
+    console.log(`\nWorkflow List Summary:`);
+    console.log(`Total indexed IDs: ${workflowIds.length}`);
+    console.log(`Valid workflows: ${workflowList.length}`);
+    console.log(`Failed/missing: ${workflowIds.length - workflowList.length}`);
+    console.log(`\nTiming:`);
+    console.log(`Get indexed IDs: ${idsTime}ms`);
+    console.log(`Fetch workflows: ${fetchTime}ms`);
+    console.log(`Total time: ${totalTime}ms\n`);
+
+    // Add TTL info to summary
+    console.log(`\nTTL Summary:`);
+    console.log(`Keys with no expiration: ${ttlResults.filter(r => r.ttl === -1).length}`);
+    console.log(`Keys with expiration: ${expiringKeys.length}`);
+    console.log(`Failed TTL checks: ${ttlResults.filter(r => r.error).length}`);
+
     return workflowList;
   } catch (error) {
-    console.error('Error fetching workflow list:', error);
-    throw new Error(
-      `Failed to fetch workflow list: ${error instanceof Error ? error.message : 'Unknown error'}`
-    );
+    const totalTime = Date.now() - startTime;
+    console.error(`❌ Error fetching workflow list (${totalTime}ms):`, error);
+    throw error;
   }
 }
 
@@ -247,7 +413,10 @@ export async function listWorkflows(): Promise<Array<Omit<StoredWorkflow, 'modul
 export async function deleteWorkflow(id: string): Promise<void> {
   try {
     console.log(`Deleting workflow ${id}...`);
-    await kv.del(`workflow:${id}`);
+    await Promise.all([
+      kv.del(`workflow:${id}`),
+      removeFromIndex(id)
+    ]);
     console.log(`Workflow ${id} deleted`);
   } catch (error) {
     console.error(`Error deleting workflow ${id}:`, error);
@@ -287,6 +456,78 @@ export async function updateWorkflowMetadata(
     throw new Error(
       `Failed to update workflow metadata: ${error instanceof Error ? error.message : 'Unknown error'}`
     );
+  }
+}
+
+/**
+ * Rebuild workflow index from existing keys
+ */
+export async function rebuildWorkflowIndex(): Promise<{
+  indexed: number;
+  total: number;
+  errors: Array<{ id: string; error: string }>;
+}> {
+  const startTime = Date.now();
+  console.log('\nRebuilding workflow index...');
+  
+  try {
+    // Get all workflow keys
+    console.log('Fetching all workflow keys...');
+    const keys = await kv.keys('workflow:*');
+    const workflowIds = keys
+      .filter(key => key !== WORKFLOW_INDEX_KEY)
+      .map(key => key.replace('workflow:', ''))
+      .filter(id => id && id.trim().length > 0); // Filter out empty/invalid IDs
+    
+    console.log(`Found ${workflowIds.length} workflow keys`);
+
+    // Clear existing index
+    console.log('Clearing existing index...');
+    await kv.del(WORKFLOW_INDEX_KEY);
+
+    // Add each valid workflow to index
+    const errors: Array<{ id: string; error: string }> = [];
+    let indexed = 0;
+
+    for (const id of workflowIds) {
+      try {
+        // Verify workflow exists and is valid
+        const workflow = await getWorkflow(id);
+        if (!workflow || !workflow.id || !workflow.name) {
+          errors.push({ id, error: 'Invalid workflow data' });
+          continue;
+        }
+
+        // Add to index
+        await addToIndex(id);
+        indexed++;
+      } catch (error) {
+        errors.push({
+          id,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }
+
+    const totalTime = Date.now() - startTime;
+    console.log(`\nIndex Rebuild Summary:`);
+    console.log(`Total workflows found: ${workflowIds.length}`);
+    console.log(`Successfully indexed: ${indexed}`);
+    console.log(`Failed to index: ${errors.length}`);
+    console.log(`Total time: ${totalTime}ms`);
+
+    if (errors.length > 0) {
+      console.warn('\nErrors:', errors);
+    }
+
+    return {
+      indexed,
+      total: workflowIds.length,
+      errors
+    };
+  } catch (error) {
+    console.error('Error rebuilding index:', error);
+    throw error;
   }
 }
 

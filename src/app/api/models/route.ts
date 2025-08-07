@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import OpenAI from 'openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 // Hardcoded Anthropic models since they don't have a models API
 const ANTHROPIC_MODELS = [
@@ -14,12 +15,85 @@ const ALLOWED_MODEL_PREFIXES = [
   'gpt-3.5-turbo'
 ];
 
+interface GoogleAIModel {
+  name: string;
+  version: string;
+  displayName: string;
+  description: string;
+  supportedGenerationMethods: string[];
+  temperature?: {
+    minValue?: number;
+    maxValue?: number;
+    defaultValue?: number;
+  };
+}
+
+async function fetchGoogleAIModels(apiKey: string): Promise<string[]> {
+  try {
+    console.log('Fetching Google AI models...');
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1/models?key=${apiKey}`,
+      { 
+        headers: { 
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      console.error('Google AI API error response:', error);
+      throw new Error(error.error?.message || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    console.log('Raw Google AI models response:', data);
+
+    if (!data.models || !Array.isArray(data.models)) {
+      console.warn('Unexpected Google AI models response format:', data);
+      return [];
+    }
+
+    console.log('Google AI models:', data.models);
+
+    // Filter for generative models that support text generation
+    const filteredModels = data.models
+      .filter((model: GoogleAIModel) => {
+        const isGenerative = model.supportedGenerationMethods?.includes('generateContent');
+        const isTextModel = !model.name.includes('vision');
+        console.log(`Model ${model.name}: generative=${isGenerative}, text=${isTextModel}`);
+        return isGenerative && isTextModel;
+      })
+      .map((model: GoogleAIModel) => {
+        // Extract model name from format "models/gemini-pro"
+        const modelName = model.name.split('/').pop();
+        console.log('Found model:', modelName);
+        return modelName;
+      })
+      .filter(Boolean);
+
+    console.log('Filtered Google AI models:', filteredModels);
+    return filteredModels;
+
+  } catch (error) {
+    console.error('Error fetching Google AI models:', error);
+    throw error;
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { anthropicApiKey, openaiApiKey } = await request.json();
-    const models: { openai: string[]; anthropic: string[] } = {
+    const { anthropicApiKey, openaiApiKey, googleApiKey } = await request.json(); // Changed from googleaiApiKey
+    console.log('Received API keys:', {
+      anthropic: !!anthropicApiKey,
+      openai: !!openaiApiKey,
+      google: !!googleApiKey
+    });
+
+    const models: { openai: string[]; anthropic: string[]; google: string[] } = {
       openai: [],
-      anthropic: []
+      anthropic: [],
+      google: []
     };
 
     // Fetch OpenAI models if API key is provided
@@ -53,13 +127,30 @@ export async function POST(request: NextRequest) {
 
     // Add Anthropic models if API key is provided
     if (anthropicApiKey) {
-      // We could validate the API key here with a simple request if needed
       models.anthropic = ANTHROPIC_MODELS;
       console.log('Added Anthropic models:', models.anthropic.length);
     }
 
+    // Fetch Google AI models if API key is provided
+    if (googleApiKey) {
+      try {
+        models.google = await fetchGoogleAIModels(googleApiKey);
+        console.log('Successfully fetched Google AI models:', models.google.length);
+      } catch (error: any) {
+        console.error('Error fetching Google AI models:', error);
+        if (error.message?.includes('API key not valid')) {
+          return new Response(
+            JSON.stringify({ error: 'Invalid Google AI API key' }),
+            { status: 401 }
+          );
+        }
+        // Don't fail completely, just return empty array for Google AI
+        console.warn('Could not fetch Google AI models, continuing with empty list');
+      }
+    }
+
     // Check if we have any models at all
-    if (models.openai.length === 0 && models.anthropic.length === 0) {
+    if (models.openai.length === 0 && models.anthropic.length === 0 && models.google.length === 0) {
       return new Response(
         JSON.stringify({ error: 'No API keys provided or all keys were invalid' }),
         { status: 400 }

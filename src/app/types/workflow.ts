@@ -1,4 +1,4 @@
-export type Provider = 'openai' | 'anthropic';
+export type Provider = 'openai' | 'anthropic' | 'google';
 
 export interface WorkflowModuleData {
   id: string;
@@ -23,7 +23,8 @@ export interface WorkflowResult {
 // Provider display names
 export const PROVIDER_NAMES: Record<Provider, string> = {
   openai: 'OpenAI',
-  anthropic: 'Anthropic'
+  anthropic: 'Anthropic',
+  google: 'Google AI'
 } as const;
 
 // Internal model IDs used by the APIs
@@ -33,12 +34,15 @@ export const MODEL_IDS = {
   CLAUDE_OPUS: 'claude-3-opus-20240229',
   GPT4: 'gpt-4-0125-preview',
   GPT4_MINI: 'gpt-4-turbo-preview',
+  GEMINI_PRO: 'gemini-1.5-pro',
+  GEMINI_FLASH: 'gemini-1.5-flash',
 } as const;
 
 // Available models for selection (fallback list)
 export const FALLBACK_MODELS: Record<Provider, string[]> = {
   openai: [MODEL_IDS.GPT4, MODEL_IDS.GPT4_MINI],
   anthropic: [MODEL_IDS.CLAUDE_SONNET],
+  google: [MODEL_IDS.GEMINI_PRO, MODEL_IDS.GEMINI_FLASH],
 };
 
 // Display name patterns for dynamic model matching
@@ -57,6 +61,10 @@ const MODEL_DISPLAY_PATTERNS: Array<[RegExp, (match: RegExpMatchArray) => string
   [/^claude-2.1$/, () => "Claude 2.1"],
   [/^claude-2.0$/, () => "Claude 2.0"],
   [/^claude-instant-1.2$/, () => "Claude Instant"],
+
+  // Google AI Models
+  [/^gemini-1\.5-pro$/, () => "Gemini 1.5 Pro"],
+  [/^gemini-1\.5-flash$/, () => "Gemini 1.5 Flash"],
 ];
 
 // Static display names for known models
@@ -66,6 +74,8 @@ const STATIC_DISPLAY_NAMES: Record<string, string> = {
   [MODEL_IDS.CLAUDE_OPUS]: "Claude 3 Opus",
   [MODEL_IDS.GPT4]: "GPT-4o",
   [MODEL_IDS.GPT4_MINI]: "GPT-4o Mini",
+  [MODEL_IDS.GEMINI_PRO]: "Gemini 1.5 Pro",
+  [MODEL_IDS.GEMINI_FLASH]: "Gemini 1.5 Flash",
 };
 
 /**
@@ -99,5 +109,6 @@ export function getModelDisplayName(modelId: string): string {
 export function getProviderFromModel(modelId: string): Provider | null {
   if (modelId.startsWith('gpt-')) return 'openai';
   if (modelId.startsWith('claude-')) return 'anthropic';
+  if (modelId.startsWith('gemini-')) return 'google';
   return null;
 } 

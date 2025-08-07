@@ -22,6 +22,7 @@ export default function SettingsDropdown() {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [anthropicKey, setAnthropicKey] = useState('');
   const [openaiKey, setOpenaiKey] = useState('');
+  const [googleKey, setGoogleKey] = useState('');
   const [keyStatus, setKeyStatus] = useState<Record<string, ApiKeyStatus>>({
     anthropic: {
       isConfigured: false,
@@ -34,25 +35,43 @@ export default function SettingsDropdown() {
       isValid: null,
       isLoading: false,
       error: null
+    },
+    google: {
+      isConfigured: false,
+      isValid: null,
+      isLoading: false,
+      error: null
     }
   });
   const [refreshStatus, setRefreshStatus] = useState<RefreshStatus | null>(null);
   const [previousKeys, setPreviousKeys] = useState({
     anthropic: '',
-    openai: ''
+    openai: '',
+    google: ''
   });
 
   // Memoize fetchAvailableModels to prevent recreation on every render
-  const fetchAvailableModels = useCallback(async (keys: { anthropic?: string; openai?: string }) => {
+  const fetchAvailableModels = useCallback(async (keys: { 
+    anthropic?: string;
+    openai?: string;
+    google?: string;
+  }) => {
     setRefreshStatus(null);
 
     try {
+      console.log('Fetching models with keys:', {
+        anthropic: !!keys.anthropic,
+        openai: !!keys.openai,
+        google: !!keys.google
+      });
+
       const response = await fetch('/api/models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           anthropicApiKey: keys.anthropic,
-          openaiApiKey: keys.openai
+          openaiApiKey: keys.openai,
+          googleApiKey: keys.google // Changed from googleaiApiKey to match sessionStorage key
         })
       });
 
@@ -66,6 +85,7 @@ export default function SettingsDropdown() {
       const updatedModels = {
         openai: data.openai || [],
         anthropic: data.anthropic || [],
+        google: data.google || [],
         lastUpdated: new Date().toISOString()
       };
       sessionStorage.setItem('available_models', JSON.stringify(updatedModels));
@@ -73,10 +93,11 @@ export default function SettingsDropdown() {
       // Count providers with models
       const activeProviders = [
         data.openai?.length && 'OpenAI',
-        data.anthropic?.length && 'Anthropic'
+        data.anthropic?.length && 'Anthropic',
+        data.google?.length && 'Google AI'
       ].filter(Boolean);
 
-      const totalModels = (data.openai?.length || 0) + (data.anthropic?.length || 0);
+      const totalModels = (data.openai?.length || 0) + (data.anthropic?.length || 0) + (data.google?.length || 0);
 
       setRefreshStatus({
         message: `Found ${totalModels} model${totalModels !== 1 ? 's' : ''} from ${activeProviders.join(' and ')}`,
@@ -94,8 +115,31 @@ export default function SettingsDropdown() {
     }
   }, []);
 
-  const testConnection = async (provider: 'anthropic' | 'openai') => {
-    const key = provider === 'anthropic' ? anthropicKey : openaiKey;
+  // Handle refresh models button click
+  const handleRefreshModels = () => {
+    const anthropicKey = sessionStorage.getItem('anthropic_api_key') || undefined;
+    const openaiKey = sessionStorage.getItem('openai_api_key') || undefined;
+    const googleKey = sessionStorage.getItem('google_api_key') || undefined;
+
+    console.log('Refreshing models with keys:', {
+      anthropic: !!anthropicKey,
+      openai: !!openaiKey,
+      google: !!googleKey
+    });
+
+    fetchAvailableModels({
+      anthropic: anthropicKey,
+      openai: openaiKey,
+      google: googleKey
+    });
+  };
+
+  const testConnection = async (provider: 'anthropic' | 'openai' | 'google') => {
+    const key = provider === 'anthropic' 
+      ? anthropicKey 
+      : provider === 'openai'
+      ? openaiKey
+      : googleKey;
     if (!key) return;
 
     setKeyStatus(prev => ({
@@ -108,10 +152,16 @@ export default function SettingsDropdown() {
     }));
 
     try {
-      const endpoint = provider === 'anthropic' ? '/api/claude' : '/api/openai';
+      const endpoint = provider === 'anthropic' 
+        ? '/api/claude' 
+        : provider === 'openai'
+        ? '/api/openai'
+        : '/api/gemini';
       const model = provider === 'anthropic' 
         ? MODEL_IDS.CLAUDE_SONNET
-        : 'gpt-3.5-turbo';
+        : provider === 'openai'
+        ? 'gpt-3.5-turbo'
+        : MODEL_IDS.GEMINI_PRO;
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -143,7 +193,15 @@ export default function SettingsDropdown() {
       // Only fetch models if the key has changed
       if (key !== previousKeys[provider]) {
         setPreviousKeys(prev => ({ ...prev, [provider]: key }));
-        // Don't automatically fetch models - let user click refresh button
+        
+        // Fetch models with all current keys
+        const currentKeys = {
+          anthropic: provider === 'anthropic' ? key : sessionStorage.getItem('anthropic_api_key') || undefined,
+          openai: provider === 'openai' ? key : sessionStorage.getItem('openai_api_key') || undefined,
+          google: provider === 'google' ? key : sessionStorage.getItem('google_api_key') || undefined
+        };
+
+        await fetchAvailableModels(currentKeys);
       }
 
     } catch (error) {
@@ -163,6 +221,7 @@ export default function SettingsDropdown() {
     // Load saved keys
     const savedAnthropicKey = sessionStorage.getItem('anthropic_api_key');
     const savedOpenaiKey = sessionStorage.getItem('openai_api_key');
+    const savedGoogleKey = sessionStorage.getItem('google_api_key');
 
     if (savedAnthropicKey) {
       setAnthropicKey(savedAnthropicKey);
@@ -171,6 +230,19 @@ export default function SettingsDropdown() {
     if (savedOpenaiKey) {
       setOpenaiKey(savedOpenaiKey);
       setPreviousKeys(prev => ({ ...prev, openai: savedOpenaiKey }));
+    }
+    if (savedGoogleKey) {
+      setGoogleKey(savedGoogleKey);
+      setPreviousKeys(prev => ({ ...prev, google: savedGoogleKey }));
+    }
+
+    // If we have any saved keys, fetch models
+    if (savedAnthropicKey || savedOpenaiKey || savedGoogleKey) {
+      fetchAvailableModels({
+        anthropic: savedAnthropicKey || undefined,
+        openai: savedOpenaiKey || undefined,
+        google: savedGoogleKey || undefined
+      });
     }
 
     setKeyStatus(prev => ({
@@ -181,6 +253,10 @@ export default function SettingsDropdown() {
       openai: {
         ...prev.openai,
         isConfigured: !!savedOpenaiKey
+      },
+      google: {
+        ...prev.google,
+        isConfigured: !!savedGoogleKey
       }
     }));
 
@@ -303,7 +379,7 @@ export default function SettingsDropdown() {
                     type="password"
                     value={anthropicKey}
                     onChange={(e) => setAnthropicKey(e.target.value)}
-                    placeholder="sk-ant-api03-..."
+                    placeholder="sk-ant-..."
                     className="flex-1 px-3 py-1.5 bg-[var(--surface-2)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                   />
                   <button
@@ -347,6 +423,35 @@ export default function SettingsDropdown() {
                   <p className="text-xs text-red-400">{keyStatus.openai.error}</p>
                 )}
               </div>
+
+              {/* Google AI API Key */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-sm font-medium text-[var(--text-secondary)]">
+                    Google AI API Key
+                  </label>
+                  {getStatusIcon(keyStatus.google)}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={googleKey}
+                    onChange={(e) => setGoogleKey(e.target.value)}
+                    placeholder="AIza..."
+                    className="flex-1 px-3 py-1.5 bg-[var(--surface-2)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                  />
+                  <button
+                    onClick={() => testConnection('google')}
+                    disabled={!googleKey || keyStatus.google.isLoading}
+                    className="px-3 py-1.5 bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-secondary)] rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Test
+                  </button>
+                </div>
+                {keyStatus.google.error && (
+                  <p className="text-xs text-red-400">{keyStatus.google.error}</p>
+                )}
+              </div>
             </div>
 
             {/* Models Section */}
@@ -354,14 +459,14 @@ export default function SettingsDropdown() {
               <div className="flex items-center justify-between">
                 <h4 className="text-sm font-medium text-[var(--text-secondary)]">Available Models</h4>
                 <button
-                  onClick={() => fetchAvailableModels({ anthropic: anthropicKey, openai: openaiKey })}
-                  disabled={keyStatus.anthropic.isLoading || keyStatus.openai.isLoading || (!anthropicKey && !openaiKey)}
+                  onClick={handleRefreshModels}
+                  disabled={keyStatus.anthropic.isLoading || keyStatus.openai.isLoading || keyStatus.google.isLoading}
                   className="px-2 py-1 text-xs bg-[var(--surface-2)] hover:bg-[var(--surface-3)]
                     text-[var(--text-secondary)] rounded-lg transition-colors
                     disabled:opacity-50 disabled:cursor-not-allowed
                     flex items-center gap-1.5"
                 >
-                  {keyStatus.anthropic.isLoading || keyStatus.openai.isLoading ? (
+                  {keyStatus.anthropic.isLoading || keyStatus.openai.isLoading || keyStatus.google.isLoading ? (
                     <>
                       <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />

@@ -50,7 +50,7 @@ export default function WorkflowModule({
     setIsPromptExpanded(false);
   };
 
-  const handleProviderChange = (provider: 'openai' | 'anthropic' | null) => {
+  const handleProviderChange = (provider: 'openai' | 'anthropic' | 'google' | null) => {
     console.log('Provider change:', provider); // Debug log
     onUpdate(module.id, {
       provider,
@@ -71,10 +71,16 @@ export default function WorkflowModule({
 
     const apiKey = module.provider === 'anthropic'
       ? sessionStorage.getItem('anthropic_api_key')
-      : sessionStorage.getItem('openai_api_key');
+      : module.provider === 'openai'
+      ? sessionStorage.getItem('openai_api_key')
+      : sessionStorage.getItem('google_api_key');
 
     if (!apiKey) {
-      setTestError(`Please add your ${module.provider === 'anthropic' ? 'Anthropic' : 'OpenAI'} API key in settings.`);
+      setTestError(`Please add your ${
+        module.provider === 'anthropic' ? 'Anthropic' :
+        module.provider === 'openai' ? 'OpenAI' :
+        'Google AI'
+      } API key in settings.`);
       return;
     }
 
@@ -83,7 +89,12 @@ export default function WorkflowModule({
     setTestResponse(null);
 
     try {
-      const endpoint = module.provider === 'anthropic' ? '/api/claude' : '/api/openai';
+      const endpoint = module.provider === 'anthropic'
+        ? '/api/claude'
+        : module.provider === 'openai'
+        ? '/api/openai'
+        : '/api/gemini';
+
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

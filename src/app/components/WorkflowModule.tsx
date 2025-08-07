@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { WorkflowModuleData, AVAILABLE_MODELS } from '../types/workflow';
+import { WorkflowModuleData } from '../types/workflow';
 import LoadingSpinner from './LoadingSpinner';
+import ModelSelect from './ModelSelect';
 
 interface WorkflowModuleProps {
   module: WorkflowModuleData;
@@ -49,7 +50,10 @@ export default function WorkflowModule({
   };
 
   const handleTestPrompt = async () => {
-    const apiKey = sessionStorage.getItem('anthropic_api_key');
+    const apiKey = module.selectedModel.startsWith('claude-')
+      ? sessionStorage.getItem('anthropic_api_key')
+      : sessionStorage.getItem('openai_api_key');
+
     if (!apiKey) {
       setTestError('API key required. Please add your API key in settings.');
       return;
@@ -60,10 +64,18 @@ export default function WorkflowModule({
     setTestResponse(null);
 
     try {
-      const response = await fetch('/api/claude', {
+      const endpoint = module.selectedModel.startsWith('claude-')
+        ? '/api/claude'
+        : '/api/openai';
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: module.prompt, apiKey }),
+        body: JSON.stringify({
+          prompt: module.prompt,
+          apiKey,
+          model: module.selectedModel // Pass the selected model ID
+        }),
       });
 
       const data = await response.json();
@@ -117,24 +129,10 @@ export default function WorkflowModule({
         </h3>
 
         <div className="flex items-center gap-3">
-          <select
+          <ModelSelect
             value={module.selectedModel}
-            onChange={(e) => onUpdate(module.id, { selectedModel: e.target.value })}
-            className="premium-input px-3 py-1.5 text-sm text-[var(--text-primary)] rounded-lg 
-              appearance-none bg-[var(--surface-2)] cursor-pointer
-              focus:outline-none focus:ring-2 focus:ring-blue-500/30
-              pr-8 relative"
-            style={{
-              backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23666' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`,
-              backgroundPosition: `right 0.5rem center`,
-              backgroundRepeat: `no-repeat`,
-              backgroundSize: `1.5em 1.5em`
-            }}
-          >
-            {AVAILABLE_MODELS.map(model => (
-              <option key={model} value={model}>{model}</option>
-            ))}
-          </select>
+            onChange={(value) => onUpdate(module.id, { selectedModel: value })}
+          />
 
           {onDelete && canDelete && (
             <button

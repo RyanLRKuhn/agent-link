@@ -1,68 +1,59 @@
 import { NextRequest } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('Received request to /api/claude');
+    console.log('Received request to /api/openai');
     const { prompt, apiKey, model } = await request.json();
 
     if (!apiKey) {
       console.log('API key missing');
       return new Response(
         JSON.stringify({ error: 'API key is required' }), 
-        { status: 401 }
+        { 
+          status: 401,
+          headers: { 'Content-Type': 'application/json' }
+        }
       );
     }
 
     // Validate model
-    if (!model?.startsWith('claude-')) {
+    if (!model?.startsWith('gpt-')) {
       return new Response(
         JSON.stringify({ error: 'Invalid model specified' }), 
         { status: 400 }
       );
     }
 
-    console.log(`Making request to Claude API with model ${model}...`);
-    const anthropic = new Anthropic({ apiKey });
+    console.log(`Making request to OpenAI API with model ${model}...`);
+    const openai = new OpenAI({ apiKey });
 
     try {
-      const completion = await anthropic.messages.create({
+      const completion = await openai.chat.completions.create({
         model,
-        max_tokens: 1024,
         messages: [{ role: 'user', content: prompt }],
+        max_tokens: 1024,
       });
 
-      // Ensure we have a text response
-      const responseText = completion.content.find(c => c.type === 'text');
-      if (!responseText || responseText.type !== 'text') {
-        console.error('Unexpected response type from Claude API:', completion.content);
-        throw new Error('Unexpected response type from Claude API');
-      }
-
-      console.log('Successfully received response from Claude API');
+      console.log('Received response from OpenAI API');
       return new Response(
         JSON.stringify({
-          response: responseText.text,
+          response: completion.choices[0].message.content,
           usage: {
-            input_tokens: completion.usage?.input_tokens,
-            output_tokens: completion.usage?.output_tokens,
+            input_tokens: completion.usage?.prompt_tokens,
+            output_tokens: completion.usage?.completion_tokens,
           },
           timestamp: new Date().toISOString(),
         }),
         {
           status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' }
         }
       );
     } catch (error: any) {
-      // Handle Anthropic API errors
-      console.error('Claude API error:', {
-        status: error.status,
-        message: error.message
-      });
+      console.error('OpenAI API error:', error);
 
+      // Handle specific API errors
       if (error.status === 401) {
         return new Response(
           JSON.stringify({ error: 'Invalid API key' }), 
@@ -83,7 +74,7 @@ export async function POST(request: NextRequest) {
       }
       
       return new Response(
-        JSON.stringify({ error: 'Failed to process request' }), 
+        JSON.stringify({ error: error.message || 'Failed to process request' }), 
         { status: 500 }
       );
     }

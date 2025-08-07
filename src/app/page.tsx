@@ -79,16 +79,35 @@ export default function Home() {
 
   const handleExport = () => {
     const exportData = {
-      modules,
-      results,
-      timestamp: new Date().toISOString()
+      metadata: {
+        timestamp: new Date().toISOString(),
+        totalTime: results.reduce((sum, r) => sum + r.executionTime, 0),
+        totalTokens: results.reduce((sum, r) => {
+          return sum + (r.usage?.input_tokens || 0) + (r.usage?.output_tokens || 0);
+        }, 0),
+      },
+      workflow: {
+        agents: modules.map(m => ({
+          title: m.title,
+          model: m.selectedModel,
+          role: m.prompt
+        })),
+        results: results.map(r => ({
+          agent: modules[r.agentIndex].title,
+          input: r.input,
+          output: r.output,
+          executionTime: r.executionTime,
+          usage: r.usage,
+          timestamp: r.timestamp
+        }))
+      }
     };
 
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `workflow-${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `workflow-${new Date().toISOString().split('.')[0].replace(/:/g, '-')}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -134,6 +153,8 @@ export default function Home() {
               const status = agentStatus[module.id];
               const isActive = isRunning && currentAgentIndex === index;
               const isPreviousActive = isRunning && currentAgentIndex === index - 1;
+              const previousModule = index > 0 ? modules[index - 1] : null;
+              const isTransitioning = isPreviousActive && status?.isExecuting;
 
               return (
                 <div 
@@ -143,7 +164,12 @@ export default function Home() {
                 >
                   {/* Flow Indicator */}
                   {index > 0 && (
-                    <FlowIndicator isActive={isPreviousActive} />
+                    <FlowIndicator 
+                      isActive={isPreviousActive}
+                      fromAgent={previousModule?.title}
+                      toAgent={module.title}
+                      isTransitioning={isTransitioning}
+                    />
                   )}
 
                   {/* Module Card */}
@@ -229,7 +255,7 @@ export default function Home() {
 
             {/* Final Output */}
             {!isRunning && results.length > 0 && !error && (
-              <div className="w-full border-t border-[var(--border)] pt-16">
+              <div className="w-full mt-16 pt-16 border-t border-[var(--border)]">
                 <WorkflowOutput 
                   modules={modules}
                   results={results}
